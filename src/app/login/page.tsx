@@ -12,6 +12,9 @@ import {
 import { Disclaimer } from "@/components/disclaimer";
 import { GoogleSignInButton } from "@/components/google-sign-in-button";
 
+// Reads the current session to skip the form when already signed in.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Sign in",
 };

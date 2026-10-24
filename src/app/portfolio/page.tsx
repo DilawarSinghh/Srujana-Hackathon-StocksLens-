@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import { getCurrentUser, getDisplayName } from "@/lib/auth";
 import { Disclaimer } from "@/components/disclaimer";
 
+// Auth-dependent: render per request, never prerender at build time.
+export const dynamic = "force-dynamic";
+
 export default async function PortfolioPage() {
   // Middleware already guards this route; this is a defense-in-depth check.
   const user = await getCurrentUser();

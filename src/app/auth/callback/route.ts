@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+// Exchanges an OAuth code at request time; never statically evaluated.
+export const dynamic = "force-dynamic";
+
 /**
  * OAuth callback. Exchanges the `code` for a session, then redirects to the
  * `next` param (must be a local path) or "/". On error, redirects to
