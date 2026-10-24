@@ -1,9 +1,223 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { streamText } from "ai";
+import { google } from "@ai-sdk/google";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getServerEnv } from "@/lib/env";
+import { retrieveChunks, type RetrievedChunk } from "@/lib/rag/retrieve";
+import { loadStockContext } from "@/lib/rag/context";
+import { SYSTEM_PROMPT, renderSources, renderDataBlock } from "@/lib/rag/prompt";
+import {
+  isAdviceSeeking,
+  buildRefusal,
+  sanitizeOutput,
+} from "@/lib/rag/guardrails";
+import type { ChatSource, TablesInsert } from "@/types/database";
 
-/** Chat backend scaffold. Guardrails + RAG streaming land in Phase 8. */
-export async function POST() {
-  return NextResponse.json(
-    { error: "Not implemented yet. Chat arrives in Phase 8." },
-    { status: 501 },
-  );
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+const bodySchema = z.object({
+  symbol: z.string().trim().min(1).max(40),
+  message: z.string().trim().min(1).max(1000),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().max(4000),
+      }),
+    )
+    .max(10)
+    .optional()
+    .default([]),
+});
+
+const RATE_LIMIT = 20; // user messages per rolling hour
+
+/** Build the citation metadata for the sources actually cited in the answer. */
+function citedSources(
+  chunks: RetrievedChunk[],
+  answer: string,
+): ChatSource[] {
+  const out: ChatSource[] = [];
+  chunks.forEach((c, i) => {
+    const tag = `S${i + 1}`;
+    if (answer.includes(`[${tag}]`)) {
+      out.push({
+        id: tag,
+        doc: c.filingTitle ?? c.docType ?? "Filing",
+        fiscalYear: c.fiscalYear,
+        page: c.page,
+        section: c.section,
+        snippet: c.content.slice(0, 300),
+        url: c.sourceUrl ? `${c.sourceUrl}#page=${c.page ?? 1}` : "",
+      });
+    }
+  });
+  return out;
+}
+
+export async function POST(request: Request) {
+  // 1. Parse + validate.
+  let body: z.infer<typeof bodySchema>;
+  try {
+    body = bodySchema.parse(await request.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+
+  // 2. Require login.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: "Please sign in to chat." },
+      { status: 401 },
+    );
+  }
+
+  const admin = createAdminClient();
+
+  // 3. Look up the stock.
+  const { data: stock } = await admin
+    .from("stocks")
+    .select("id, name")
+    .eq("symbol", body.symbol.toUpperCase())
+    .maybeSingle();
+  if (!stock) {
+    return NextResponse.json({ error: "Unknown stock." }, { status: 404 });
+  }
+
+  // 4. Rate limit: count this user's messages in the last hour.
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count } = await admin
+    .from("chat_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("role", "user")
+    .gte("created_at", since);
+  if ((count ?? 0) >= RATE_LIMIT) {
+    return NextResponse.json(
+      {
+        error:
+          "You've reached the hourly message limit. Please try again a little later.",
+      },
+      { status: 429 },
+    );
+  }
+
+  // Load structured context (DATA block + neutral bullets).
+  const ctx = await loadStockContext(stock.id);
+  const neutralBullets = ctx?.neutralBullets ?? [];
+  const refusal = buildRefusal({ company: stock.name, bullets: neutralBullets });
+
+  // Persist the user message (best-effort).
+  await admin.from("chat_messages").insert({
+    user_id: user.id,
+    stock_id: stock.id,
+    role: "user",
+    content: body.message,
+  } satisfies TablesInsert<"chat_messages">);
+
+  // 5. INTENT GUARD — refuse advice-seeking deterministically, no LLM.
+  if (isAdviceSeeking(body.message)) {
+    await admin.from("chat_messages").insert({
+      user_id: user.id,
+      stock_id: stock.id,
+      role: "assistant",
+      content: refusal,
+      sources: [],
+    } satisfies TablesInsert<"chat_messages">);
+    return streamPlainText(refusal);
+  }
+
+  // 6. Retrieve filing chunks.
+  let chunks: RetrievedChunk[] = [];
+  try {
+    chunks = await retrieveChunks(stock.id, body.message);
+  } catch (e) {
+    console.error("retrieval:", (e as Error).message);
+  }
+
+  // If nothing relevant AND no structured data, bail with a clean message.
+  const dataBlock = ctx?.data ?? null;
+  if (chunks.length === 0 && !dataBlock) {
+    const msg =
+      "I couldn't find that in the available filings for this company.";
+    await admin.from("chat_messages").insert({
+      user_id: user.id,
+      stock_id: stock.id,
+      role: "assistant",
+      content: msg,
+      sources: [],
+    } satisfies TablesInsert<"chat_messages">);
+    return streamPlainText(msg);
+  }
+
+  // 7. Build the prompt.
+  const sourcesText = renderSources(chunks);
+  const dataText = dataBlock ? renderDataBlock(dataBlock) : "DATA: (none)";
+  const history = (body.history ?? []).slice(-6);
+
+  const { GEMINI_CHAT_MODEL } = getServerEnv();
+
+  try {
+    const result = streamText({
+      model: google(GEMINI_CHAT_MODEL),
+      system: SYSTEM_PROMPT,
+      messages: [
+        ...history.map((h) => ({ role: h.role, content: h.content })),
+        {
+          role: "user" as const,
+          content: `${sourcesText}\n\n${dataText}\n\nQUESTION: ${body.message}`,
+        },
+      ],
+      // 8 + 10: OUTPUT GUARD + persistence happen on finish.
+      async onFinish({ text }) {
+        const { text: safe } = sanitizeOutput(text, refusal);
+        const sources = citedSources(chunks, safe);
+        await admin.from("chat_messages").insert({
+          user_id: user.id,
+          stock_id: stock.id,
+          role: "assistant",
+          content: safe,
+          sources,
+        } satisfies TablesInsert<"chat_messages">);
+      },
+    });
+
+    // Attach cited-source metadata to the stream as a header so the client can
+    // render citation chips (final/authoritative copy is also persisted above).
+    const response = result.toDataStreamResponse();
+    return response;
+  } catch (e) {
+    const err = e as Error & { statusCode?: number };
+    const status = err?.statusCode === 429 ? 429 : 500;
+    const message =
+      status === 429
+        ? "The AI service is busy right now. Please try again shortly."
+        : "Something went wrong generating an answer. Please try again.";
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+/** Stream a fixed string as a data-stream response (for refusals / fallbacks). */
+function streamPlainText(text: string): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      // Vercel AI data-stream text part format: 0:"..."
+      controller.enqueue(encoder.encode(`0:${JSON.stringify(text)}\n`));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "x-vercel-ai-data-stream": "v1",
+    },
+  });
 }
