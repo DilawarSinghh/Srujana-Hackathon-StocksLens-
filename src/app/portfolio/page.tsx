@@ -10,6 +10,7 @@ import { Disclaimer } from "@/components/disclaimer";
 import { DataFreshness } from "@/components/data-freshness";
 import { AddHoldingForm } from "@/components/portfolio/add-holding-form";
 import { PortfolioTable } from "@/components/portfolio/portfolio-table";
+import { RiskReportButton, type RiskReportBase } from "@/components/portfolio/risk-report-button";
 import { ConcentrationChart } from "@/components/portfolio/concentration-chart";
 import { StressTestPanel } from "@/components/portfolio/stress-test-panel";
 import { WhatIfSimulator } from "@/components/portfolio/what-if-simulator";
@@ -38,6 +39,31 @@ export default async function PortfolioPage() {
 
   const isEmpty = holdings.length === 0;
 
+  // Serializable base for the client-side risk-report PDF.
+  const qualityBySymbol = new Map(
+    holdings.map((h) => [h.symbol, { piotroski: h.piotroskiScore, altman: h.altmanZone }]),
+  );
+  const riskReportBase: RiskReportBase = {
+    dataFreshness: portfolio?.lastUpdated ?? null,
+    totalValue,
+    holdings: positions.map((p) => ({
+      symbol: p.symbol,
+      name: p.name,
+      sector: p.sector,
+      quantity: p.quantity,
+      value: p.value,
+      weight: p.weight,
+      piotroskiScore: qualityBySymbol.get(p.symbol)?.piotroski ?? null,
+      altmanZone: qualityBySymbol.get(p.symbol)?.altman ?? null,
+    })),
+    sectorWeights: concentration.sectorWeights,
+    concentrationFlags: concentration.flags,
+    hhi: concentration.hhi,
+    beta: betaResult.beta,
+    betaCoveredWeight: betaResult.coveredWeight,
+    volatility: vol.volatility,
+  };
+
   return (
     <div className="container flex flex-col gap-6 py-8">
       <div className="flex items-center justify-between">
@@ -47,7 +73,10 @@ export default async function PortfolioPage() {
             {getDisplayName(user)}
           </p>
         </div>
-        <DataFreshness lastUpdated={portfolio?.lastUpdated ?? null} />
+        <div className="flex flex-col items-end gap-2">
+          <DataFreshness lastUpdated={portfolio?.lastUpdated ?? null} />
+          <RiskReportButton base={riskReportBase} />
+        </div>
       </div>
 
       <Disclaimer />

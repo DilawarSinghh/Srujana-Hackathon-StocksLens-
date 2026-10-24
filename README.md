@@ -53,7 +53,8 @@ See `.env.example`. Validated by zod in `src/lib/env.ts`:
 | `NEXT_PUBLIC_SITE_URL` | public | Used for OAuth redirects |
 | `SUPABASE_SERVICE_ROLE_KEY` | server/scripts only | Never ship to the browser |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | server | Gemini key |
-| `GEMINI_CHAT_MODEL` | server | e.g. `gemini-2.0-flash` |
+| `GEMINI_CHAT_MODEL` | server | e.g. `gemini-2.0-flash` (final fallback) |
+| `GEMINI_CHAT_MODELS` | server | optional, comma-separated ordered fallback chain, e.g. `gemini-2.5-flash,gemini-2.0-flash` |
 | `GEMINI_EMBED_MODEL` | server | e.g. `text-embedding-004` |
 | `EMBED_DIMENSIONS` | server | `768` |
 | `FINNHUB_API_KEY` | server | optional |
@@ -113,6 +114,8 @@ SQL migrations live in `supabase/migrations/` and are numbered in apply order:
 | `0004_user_data.sql` | `portfolios`, `holdings`, `chat_messages` |
 | `0005_rls_policies.sql` | Row Level Security on every table |
 | `0006_storage_filings_bucket.sql` | public `filings` Storage bucket + read policy |
+| `0007_quality_and_audit.sql` | extra `fundamentals_annual` columns (current_assets, gross_profit, cost_of_revenue, retained_earnings, long_term_debt, total_liabilities); `stock_metrics` quality columns (piotroski_score, piotroski_available_criteria, altman_z, altman_zone, dividend_payout_ratio, dividend_safety); `chat_messages.audit` jsonb |
+| `0008_user_documents.sql` | `user_documents`, `user_document_chunks` (HNSW), owner-only RLS, `match_user_document_chunks()`, private `user-docs` Storage bucket with per-user folder policies |
 
 **Run the migrations** (choose one):
 
@@ -464,5 +467,195 @@ LLM path and the deterministic refusal/fallback path render identically.
   distinct dashed style vs historical numbers.
 - Empty, loading, and error states.
 
-> Phases 11–12 add the methodology page/polish and deployment. This README
-> grows with each phase.
+## Methodology & polish (Phase 11)
+
+- **`/methodology`** (public, static): pillars + weights (imported from the
+  shared constants so it always matches the engine), each metric and direction,
+  the sector-percentile method, red-flag caps, label thresholds, missing-data
+  handling, data sources, nightly schedule, formula version, known limitations,
+  and what the product is and isn't — plus the full disclaimer.
+- **Global `not-found.tsx`** and **`error.tsx`** error boundaries; per-route
+  loading skeletons and error boundaries on home, stock, and portfolio.
+- **SEO/OpenGraph**: `metadataBase` + default OG/Twitter in the root layout;
+  article OG on stock pages (`generateMetadata`) and methodology.
+- **Language audit**: no "buy / sell / best stock / invest in / target price"
+  call-to-action language in the UI. "Open in your broker" and the neutral
+  "average buy price" field label are the only buy/sell-adjacent strings, both
+  allowed. Guardrail detection patterns live in `.ts` logic, not UI.
+- **Accessibility/responsive**: icon-only buttons have `aria-labels`; focus
+  rings on interactive elements; score-label colors defined for both themes.
+  Home and stock pages use **server-side cached data** — the price chart
+  renders from props with no client-side first-render fetch of price history.
+
+## Automation, tests & security (Phase 12)
+
+- **Nightly GitHub Action** (`.github/workflows/nightly.yml`): runs daily at
+  11:00 UTC plus manual `workflow_dispatch`. Checks out, sets up pnpm + Node 20,
+  installs, runs `pnpm fetch` then `pnpm score`. Uses GitHub secrets
+  `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (and
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` for env validation). `pnpm fetch` **exits
+  non-zero if more than 30% of stocks fail to fetch**, so the job fails loudly.
+- **Tests**: `pnpm test` runs all vitest suites (metrics, scoring, guardrails,
+  portfolio, chunking — 136 tests). `pnpm e2e` runs a Playwright smoke test
+  (home loads; a stock page shows a score or a clean fallback) — it builds and
+  starts the production server automatically.
+- **Security review**:
+  - Service-role key is only imported in server/scripts (`admin.ts` +
+    `server-only` consumers), never in client code; `admin.ts` also throws if
+    run in a browser.
+  - RLS is enabled on every table (Phase 1 migration `0005`).
+  - Chat input is zod-validated and length-limited (1000 chars) server-side.
+  - Security headers (`X-Frame-Options`, `X-Content-Type-Options`,
+    `Referrer-Policy`) in `next.config.ts`.
+  - `.env*` is gitignored (except `.env.example`); no secrets are committed.
+
+## Financial quality (Piotroski, Altman, dividend)
+
+Three extra, code-computed quality checks (`src/lib/scoring/quality.ts`, pure +
+vitest-tested) feed the Financial Health pillar (formula version **v1.1**) and a
+"Financial quality" card on each stock page:
+
+- **Piotroski F-Score (0–9)** — real year-over-year scoring (positive ROA,
+  positive operating cash flow, ROA improved, cash flow > net income, long-term
+  debt ratio fell, current ratio rose, no new shares, gross margin improved,
+  asset turnover improved). A criterion with missing data is **skipped, not
+  scored 0**; the available count is stored; fewer than 6 available ⇒ "Not
+  enough data". Banks/NBFCs are skipped. Percentile-ranked within the sector.
+- **Altman Z''-Score** (emerging-market variant) — `6.56·X1 + 3.26·X2 + 6.72·X3
+  + 1.05·X4`; zones safe > 2.6, grey 1.1–2.6, distress < 1.1; `not_applicable`
+  for banks/NBFCs; NULL if any input missing. Contributes direct Financial
+  Health points (safe 100, grey 50, distress 10).
+- **Dividend safety** — payout = dividends paid ÷ net profit (net profit > 0
+  only); ≤60% strong, ≤90% moderate, else weak; "Not available" otherwise.
+  Shown as a badge on High Dividend cards.
+
+Altman distress and a Piotroski score of 0–2 surface as **informational** red
+flags only — they never trigger the score cap. Scores are computed and written
+to `stock_metrics` by `pnpm score`.
+
+## Chat reliability & fact audit
+
+- **Model fallback** (`src/lib/rag/model-chain.ts`): the chat tries the ordered
+  `GEMINI_CHAT_MODELS` list, advancing to the next model on 429/5xx/timeout, and
+  always falls back to `GEMINI_CHAT_MODEL`. If every model fails, the user sees a
+  friendly "service is busy" message.
+- **Fact audit** (`src/lib/rag/audit.ts`): after an answer is generated and
+  guarded, one cheap same-provider verification call labels each factual sentence
+  `grounded` / `unverifiable` / `not_a_claim` against the cited sources (strict
+  zod-validated JSON), stored in `chat_messages.audit`. A badge appears under the
+  answer — green "Verified against filings (n of m claims)" or an amber
+  expandable "Some statements could not be verified". Audit failure/timeout ⇒ no
+  badge, and the answer is **never** rewritten. No Cohere or new provider is used.
+- **Export chat**: a client-side button downloads the conversation as Markdown
+  (messages, citations with page numbers, disclaimer).
+
+## My documents (user uploads)
+
+`/documents` (login required) lets a user privately analyse their own PDFs.
+
+- **Upload** (`POST /api/documents`, Node runtime): PDF only, ≤ 10 MB, ≤ 150
+  pages, ≤ 5 documents per user, ≤ 3 uploads per hour. MIME type **and** the
+  `%PDF-` file signature are validated server-side. Files are stored in the
+  private `user-docs` bucket under `<user_id>/<document_id>.pdf`.
+- **Shared ingest** (`src/lib/rag/ingest.ts`): extraction → chunking → embedding
+  is factored out of the filings script so both pipelines use one code path.
+- **Red-flag scan** (`src/lib/rag/doc-scan.ts`): one LLM call over the relevant
+  sections (auditor's report, risks, contingent liabilities, related-party
+  notes) returns a zod-validated neutral 5-bullet summary plus red flags, each
+  with a page number and a short verbatim quote (< 15 words), labelled "Filing
+  red flags (AI-assisted, verify in the document)". No advice wording. Uploaded
+  text is treated as untrusted.
+- **Document chat** (`POST /api/documents/[id]/chat`): same system prompt,
+  guards, and model fallback as stock chat, retrieving only from the user's own
+  chunks via `match_user_document_chunks` (which enforces `auth.uid()`).
+- **Delete** (`DELETE /api/documents/[id]`): removes the row (chunks cascade) and
+  the storage object.
+- RLS restricts `user_documents` and `user_document_chunks` to the owner; the
+  `user-docs` bucket policies restrict every operation to the user's own folder.
+
+## Portfolio risk report
+
+`/portfolio` has an **"Export risk report"** button (`jsPDF`, dynamically
+imported, client-side). The PDF includes title/date/data-freshness, a holdings
+table, sector concentration with warnings, portfolio beta and volatility, a
+hypothetical stress scenario, Piotroski/Altman per holding where available, an
+"Assumptions" section, separate "Historical observations" and "Hypothetical
+scenarios" sections, and the disclaimer "Educational analysis only. Not
+investment advice. Hypothetical estimates are not predictions." No price
+targets, recommendations, or buy/sell wording.
+
+## Acknowledgements
+
+FilingLens adapts a small amount of logic from **[Nipun-AI](https://github.com/myProjectsRavi/Nipun-AI)**
+(MIT License) — the Piotroski idea, the Gemini model-fallback cascade, the fact
+audit, and the jsPDF report layout — all rewritten in TypeScript with
+investment-advice content removed. The user-document feature was **inspired by
+ideas** from **[StockSnapAI](https://github.com/sayed-ashfaq/StockSnapAI)** (no
+license; **no code copied or translated**). Full attribution and the Nipun-AI
+license text are in [`NOTICE.md`](./NOTICE.md).
+
+## Deployment
+
+### 1. Supabase
+1. Create a Supabase project.
+2. Run the migrations in order (SQL Editor or `supabase db push`) — see the
+   Database section.
+3. **Auth → Providers → Google**: enable and paste your Google OAuth client ID
+   + secret (see the Google OAuth section).
+4. **Storage**: confirm the public `filings` bucket exists.
+
+### 2. GitHub
+1. Push the repo to GitHub.
+2. **Settings → Secrets and variables → Actions** — add:
+   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+   `SUPABASE_SERVICE_ROLE_KEY`.
+
+### 3. Vercel
+1. Import the GitHub repo into Vercel.
+2. Add **all** env vars (from `.env.example`) for **Production and Preview**:
+   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+   `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`,
+   `GEMINI_CHAT_MODEL`, `GEMINI_EMBED_MODEL`, `EMBED_DIMENSIONS=768`,
+   `NEXT_PUBLIC_SITE_URL` (= your Vercel URL), `CRON_SECRET`.
+3. Deploy.
+4. Add the Vercel URL to **Supabase → Auth → URL Configuration → Redirect
+   URLs** (`https://<your-app>.vercel.app/**`) and keep the Google OAuth
+   redirect URI as `https://<project-ref>.supabase.co/auth/v1/callback`.
+
+### 4. Seed the data (run once, in order, locally or in CI)
+```bash
+pnpm seed     # universe (+ governance CSV if filled)
+pnpm fetch    # prices, fundamentals, metrics
+pnpm score    # fundamental scores
+pnpm ingest   # filing PDFs (place them under data/filings first)
+```
+
+### 5. Production smoke test
+- Sign in with Google.
+- Open a stock page; confirm it shows a score and chart.
+- Ask the chat a question; confirm the answer carries a working citation.
+- Ask "Should I buy this?"; confirm it returns the refusal template.
+- Open the portfolio, add a holding, run the stress test.
+
+## Add a new stock
+1. Add an entry to `UNIVERSE` in `src/config/universe.ts` (symbol, name,
+   sector, cap_category). `yahoo_symbol` is `SYMBOL + ".NS"`.
+2. (Optional) add a row to `data/governance_seed.csv`.
+3. Run `pnpm seed && pnpm fetch && pnpm score`.
+4. (Optional) drop filing PDFs under `data/filings/<SYMBOL>/` and run
+   `pnpm ingest`.
+
+## Acceptance checklist
+
+| Criterion | Status |
+| --- | --- |
+| Home shows ranked categories from the DB with no browser-side external API calls | ✅ server-rendered from Supabase; Yahoo/Gemini only called in scripts/server |
+| Score breakdown sums correctly; capped stocks show red-flag explanations | ✅ weighted + renormalised in code; cap + explanations rendered |
+| Chat answers carry working citations; "Should I buy this?" always triggers the refusal | ✅ `[Sn]` → citation chips; deterministic intent guard (unit-tested) |
+| Logged-out users cannot chat or open the portfolio; user A cannot see user B's data | ✅ middleware guards `/portfolio`; chat API requires login; RLS scopes rows to `auth.uid()` |
+| Stress test is clearly labeled hypothetical | ✅ mandatory disclaimer + dashed card style |
+| No "buy/sell/best stocks" language anywhere in the UI | ✅ language audit passed ("Open in your broker" / "avg buy price" are allowed) |
+
+Items verified by build/type/lint/unit tests locally; auth isolation, live chat
+citations, and rendered data require a deployed instance with seeded data and a
+browser session to confirm end to end.

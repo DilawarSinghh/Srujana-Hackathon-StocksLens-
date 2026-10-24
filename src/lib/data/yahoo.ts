@@ -166,6 +166,12 @@ export interface AnnualFundamental {
   ebit: number | null;
   dividendsPaid: number | null;
   sharesOutstanding: number | null;
+  currentAssets: number | null;
+  grossProfit: number | null;
+  costOfRevenue: number | null;
+  retainedEarnings: number | null;
+  longTermDebt: number | null;
+  totalLiabilities: number | null;
 }
 
 /**
@@ -232,6 +238,20 @@ export async function getAnnualFundamentals(
         ebit: pick(rec, "annualEBIT", "annualOperatingIncome"),
         dividendsPaid: pick(rec, "annualCashDividendsPaid"),
         sharesOutstanding: pick(rec, "annualBasicAverageShares", "annualOrdinarySharesNumber"),
+        currentAssets: pick(rec, "annualCurrentAssets"),
+        grossProfit: pick(rec, "annualGrossProfit"),
+        costOfRevenue: pick(rec, "annualCostOfRevenue", "annualReconciledCostOfRevenue"),
+        retainedEarnings: pick(rec, "annualRetainedEarnings"),
+        longTermDebt: pick(
+          rec,
+          "annualLongTermDebt",
+          "annualLongTermDebtAndCapitalLeaseObligation",
+        ),
+        totalLiabilities: pick(
+          rec,
+          "annualTotalLiabilitiesNetMinorityInterest",
+          "annualTotalLiabilities",
+        ),
       } satisfies AnnualFundamental;
     })
     .filter((x): x is AnnualFundamental => x !== null)

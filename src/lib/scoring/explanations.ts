@@ -42,3 +42,19 @@ export function describePercentile(
 export function describeMissing(label: string): string {
   return `${label}: not available.`;
 }
+
+/**
+ * The 9 Piotroski criteria, in order, for the UI checklist and methodology.
+ * Kept in one place so the card and docs stay in sync with the scorer.
+ */
+export const PIOTROSKI_CRITERIA = [
+  "Return on assets is positive",
+  "Operating cash flow is positive",
+  "Return on assets improved vs last year",
+  "Cash flow exceeds reported profit",
+  "Long-term debt ratio decreased",
+  "Current ratio improved",
+  "No dilution (shares did not increase)",
+  "Gross margin improved",
+  "Asset turnover improved",
+] as const;

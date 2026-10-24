@@ -15,12 +15,27 @@ import {
 
 interface StockCardProps {
   stock: StockListItem;
+  /** When true (High Dividend tab), show a dividend-safety badge. */
+  showDividendSafety?: boolean;
 }
 
+const DIVIDEND_SAFETY_LABEL: Record<
+  string,
+  { label: string; variant: "secondary" | "outline" | "destructive" }
+> = {
+  strong: { label: "Dividend: strong", variant: "secondary" },
+  moderate: { label: "Dividend: moderate", variant: "outline" },
+  weak: { label: "Dividend: weak", variant: "destructive" },
+};
+
 /** Ranked stock card for the home listing. */
-export function StockCard({ stock }: StockCardProps) {
+export function StockCard({ stock, showDividendSafety }: StockCardProps) {
   const change = dayChangePercent(stock.price, stock.prev_close);
   const limited = stock.label === LABELS.limited;
+  const dividend =
+    showDividendSafety && stock.dividend_safety
+      ? DIVIDEND_SAFETY_LABEL[stock.dividend_safety]
+      : undefined;
 
   return (
     <Card className="transition-colors hover:border-primary/40">
@@ -62,6 +77,11 @@ export function StockCard({ stock }: StockCardProps) {
               {formatPrice(stock.price)}
             </span>
             <span className="flex items-center gap-2">
+              {dividend ? (
+                <Badge variant={dividend.variant} className="text-[10px]">
+                  {dividend.label}
+                </Badge>
+              ) : null}
               {limited ? (
                 <Tooltip>
                   <TooltipTrigger asChild>

@@ -7,6 +7,9 @@ export interface HoldingWithData {
   avgBuyPrice: number;
   currentPrice: number | null;
   beta: number | null;
+  /** Financial-quality context for the risk report (may be unavailable). */
+  piotroskiScore: number | null;
+  altmanZone: string | null;
 }
 
 /** A position's computed value + weight. */

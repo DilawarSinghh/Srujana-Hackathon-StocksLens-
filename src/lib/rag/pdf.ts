@@ -1,10 +1,10 @@
+import "server-only";
+
 /**
- * PDF text extraction using pdfjs-dist (legacy build for Node).
+ * PDF text extraction using pdfjs-dist (legacy build for Node). Shared by the
+ * filings ingestion script and the user-upload route (Node runtime only).
  * Extracts text page by page, keeping true 1-based page numbers.
  */
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
 
 export interface ExtractedPage {
   pageNumber: number;
@@ -19,13 +19,13 @@ export interface ExtractResult {
 
 /** Extract text from a PDF buffer, page by page. */
 export async function extractPdfPages(data: Uint8Array): Promise<ExtractResult> {
-  // Legacy build works in Node without a DOM.
-  const pdfjs = require("pdfjs-dist/legacy/build/pdf.mjs");
+  // Legacy build works in Node without a DOM. Dynamic import keeps it out of
+  // any client bundle and works in both tsx scripts and the Node route runtime.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
   const warnings: string[] = [];
   const loadingTask = pdfjs.getDocument({
     data,
-    // Quiet font / eval warnings in scripts.
     isEvalSupported: false,
     useSystemFonts: true,
   });

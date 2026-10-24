@@ -80,7 +80,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((stock) => (
-                <StockCard key={stock.id} stock={stock} />
+                <StockCard
+                  key={stock.id}
+                  stock={stock}
+                  showDividendSafety={activeTab === "high_dividend"}
+                />
               ))}
             </div>
           )}

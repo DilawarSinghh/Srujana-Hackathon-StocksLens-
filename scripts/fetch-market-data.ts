@@ -63,7 +63,36 @@ function toCrore(f: AnnualFundamental): TablesInsert<"fundamentals_annual"> {
     ebit: c(f.ebit),
     dividends_paid: c(f.dividendsPaid),
     shares_outstanding: f.sharesOutstanding, // count, not money
+    current_assets: c(f.currentAssets),
+    gross_profit: c(f.grossProfit),
+    cost_of_revenue: c(f.costOfRevenue),
+    retained_earnings: c(f.retainedEarnings),
+    long_term_debt: c(f.longTermDebt),
+    total_liabilities: c(f.totalLiabilities),
   };
+}
+
+/**
+ * Print a per-stock table of which fundamentals fields Yahoo actually returned
+ * (based on the latest fiscal year). Read-only: uses the already-parsed data,
+ * makes no extra Yahoo calls. "·" = present, "—" = missing (stored NULL).
+ */
+function printFieldPresence(symbol: string, annual: AnnualFundamental[]): void {
+  const latest = annual.at(-1);
+  if (!latest) {
+    console.log(`    fields[${symbol}]: no annual fundamentals returned`);
+    return;
+  }
+  const fields: (keyof AnnualFundamental)[] = [
+    "revenue", "operatingProfit", "netProfit", "totalDebt", "totalEquity",
+    "totalAssets", "currentLiabilities", "operatingCashFlow", "interestExpense",
+    "ebit", "dividendsPaid", "sharesOutstanding", "currentAssets", "grossProfit",
+    "costOfRevenue", "retainedEarnings", "longTermDebt", "totalLiabilities",
+  ];
+  const cells = fields.map(
+    (k) => `${k}=${latest[k] == null ? "—" : "·"}`,
+  );
+  console.log(`    fields[${symbol}] FY${latest.fiscalYear}: ${cells.join(" ")}`);
 }
 
 interface FetchResult {
@@ -178,6 +207,7 @@ async function main() {
 
       // Fundamentals -> crore.
       const annual = await getAnnualFundamentals(yahoo);
+      printFieldPresence(stock.symbol, annual);
       if (annual.length > 0) {
         const rows = annual.map((f) => ({ ...toCrore(f), stock_id: stock.id }));
         const { error: fErr } = await db
@@ -309,6 +339,15 @@ async function main() {
   }
   const failed = results.filter((r) => r.status === "error").length;
   console.log(`\n${results.length - failed}/${results.length} succeeded.`);
+
+  // Fail loudly if more than 30% of stocks failed to fetch (nightly CI gate).
+  const failRate = results.length > 0 ? failed / results.length : 0;
+  if (failRate > 0.3) {
+    console.error(
+      `\n✗ ${(failRate * 100).toFixed(0)}% of stocks failed to fetch (> 30% threshold).`,
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {

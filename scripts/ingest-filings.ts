@@ -12,13 +12,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { db } from "./lib/db";
-import { extractPdfPages } from "./lib/pdf";
-import {
-  chunkPages,
-  buildEmbedText,
-  type Page,
-} from "@/lib/rag/chunking";
-import { embedBatch } from "@/lib/rag/embeddings";
+import { ingestPdf } from "@/lib/rag/ingest";
 import type { TablesInsert } from "@/types/database";
 
 const FILINGS_DIR = "data/filings";
@@ -101,30 +95,15 @@ async function ingestOne(file: ParsedFile): Promise<void> {
     return;
   }
 
-  // Extract pages.
-  const { pages, warnings } = await extractPdfPages(new Uint8Array(buf));
-  const pageInputs: Page[] = pages
-    .filter((p) => !p.nearEmpty)
-    .map((p) => ({ pageNumber: p.pageNumber, text: p.text }));
-
-  const chunks = chunkPages(pageInputs);
+  // Extract → chunk → embed via the shared ingest module.
+  const { pageCount: pages, chunks, warnings } = await ingestPdf(
+    new Uint8Array(buf),
+    { company: stock.name, docType, fiscalYear },
+  );
   if (chunks.length === 0) {
     console.warn(`! ${label}: no extractable text (scanned?) — skipped.`);
     return;
   }
-
-  // Embed: header + content; store clean content only.
-  const embedTexts = chunks.map((c) =>
-    buildEmbedText({
-      company: stock.name,
-      docType,
-      fiscalYear,
-      section: c.section,
-      pageNumber: c.pageNumber,
-      content: c.content,
-    }),
-  );
-  const embeddings = await embedBatch(embedTexts, 50);
 
   // Upload PDF to public Storage bucket.
   const storagePath = `${symbol.toUpperCase()}/${fileName}`;
@@ -158,7 +137,7 @@ async function ingestOne(file: ParsedFile): Promise<void> {
   if (fErr || !filing) throw new Error(`filing insert: ${fErr?.message}`);
 
   // Insert chunks (batched).
-  const chunkRows: TablesInsert<"filing_chunks">[] = chunks.map((c, i) => ({
+  const chunkRows: TablesInsert<"filing_chunks">[] = chunks.map((c) => ({
     filing_id: filing.id,
     stock_id: stock.id,
     page_number: c.pageNumber,
@@ -166,7 +145,7 @@ async function ingestOne(file: ParsedFile): Promise<void> {
     content: c.content,
     has_table: c.hasTable,
     token_count: c.tokenCount,
-    embedding: embeddings[i],
+    embedding: c.embedding,
   }));
 
   const CHUNK = 200;
@@ -178,7 +157,7 @@ async function ingestOne(file: ParsedFile): Promise<void> {
   }
 
   console.log(
-    `✓ ${label}: ${pages.length} pages, ${chunks.length} chunks, ${warnings.length} warnings`,
+    `✓ ${label}: ${pages} pages, ${chunks.length} chunks, ${warnings.length} warnings`,
   );
   for (const w of warnings.slice(0, 5)) console.log(`    ⚠ ${w}`);
   if (warnings.length > 5) console.log(`    … ${warnings.length - 5} more warnings`);

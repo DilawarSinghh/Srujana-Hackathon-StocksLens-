@@ -2,6 +2,7 @@ import {
   PILLAR_WEIGHTS,
   PILLAR_METRICS,
   OCF_RATIO_CAP,
+  ALTMAN_ZONE_POINTS,
   MIN_PEERS,
   RED_FLAG_CAP,
   LIMITED_DATA_CONFIDENCE,
@@ -13,9 +14,9 @@ import {
 } from "./constants";
 import { percentileRank } from "./percentile";
 import { scoreGovernance, type GovernanceInput } from "./governance";
-import { evaluateRedFlags } from "./red-flags";
+import { evaluateRedFlags, INFORMATIONAL_RED_FLAG_CODES } from "./red-flags";
 import { describePercentile, describeMissing } from "./explanations";
-import type { RedFlag, ScoreExplanations } from "@/types/database";
+import type { AltmanZone, RedFlag, ScoreExplanations } from "@/types/database";
 
 /** Metric values used for scoring one stock (derived, sector-relative). */
 export interface ScoringMetrics {
@@ -35,6 +36,8 @@ export interface ScoringMetrics {
   peg: number | null;
   volatility_1y: number | null;
   max_drawdown_3y: number | null;
+  /** Piotroski F-Score (0-9), percentile-ranked in financial_health. */
+  piotroski_score: number | null;
 }
 
 export interface StockForScoring {
@@ -45,6 +48,10 @@ export interface StockForScoring {
   growthPillarPositive: boolean; // whether profit CAGR 3y > 0 (gates PEG)
   governance: GovernanceInput | null;
   recentOcf: (number | null)[]; // 3 latest OCF values for red flag
+  /** Altman Z'' zone, folded into financial_health as direct points. */
+  altmanZone: AltmanZone | null;
+  /** Piotroski F-Score, used for the informational red flag. */
+  piotroskiScore: number | null;
 }
 
 export interface ScoreResult {
@@ -153,6 +160,29 @@ function scoreStock(
         );
       }
 
+      // Altman Z'' contributes DIRECT points (not percentile) to financial
+      // health. Counts as one expected metric for this non-bank pillar.
+      if (pillar === "financial_health" && !bank) {
+        expectedMetrics++;
+        const altmanPts =
+          stock.altmanZone === "safe"
+            ? ALTMAN_ZONE_POINTS.safe
+            : stock.altmanZone === "grey"
+              ? ALTMAN_ZONE_POINTS.grey
+              : stock.altmanZone === "distress"
+                ? ALTMAN_ZONE_POINTS.distress
+                : null;
+        if (altmanPts != null) {
+          availableMetrics++;
+          pctScores.push(altmanPts);
+          sentences.push(
+            `Altman Z''-Score is in the ${stock.altmanZone} zone (historical distress indicator, not a prediction).`,
+          );
+        } else {
+          sentences.push(describeMissing("Altman Z''-Score"));
+        }
+      }
+
       explanations[pillar] = sentences;
       pillarScores[pillar] =
         pctScores.length > 0
@@ -190,8 +220,14 @@ function scoreStock(
   const redFlags = evaluateRedFlags({
     governance: stock.governance,
     recentOcf: stock.recentOcf,
+    altmanZone: stock.altmanZone,
+    piotroskiScore: stock.piotroskiScore,
   });
-  const capped = redFlags.length > 0 && total > RED_FLAG_CAP;
+  // Only NON-informational flags (governance / cash flow) cap the score.
+  const cappingFlags = redFlags.filter(
+    (f) => !INFORMATIONAL_RED_FLAG_CODES.has(f.code),
+  );
+  const capped = cappingFlags.length > 0 && total > RED_FLAG_CAP;
   if (capped) total = RED_FLAG_CAP;
 
   // --- data confidence + label ---

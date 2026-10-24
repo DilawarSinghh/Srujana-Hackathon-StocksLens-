@@ -37,9 +37,18 @@ yarn-error.log*
 # downloaded filing PDFs (large binaries; ingested into Supabase Storage)
 /data/filings/**/*.pdf
 
+# reference repos (studied read-only; never committed)
+/reference
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache

@@ -12,6 +12,7 @@ import { ScoreBadge } from "@/components/score-badge";
 import { BrokerDropdown } from "@/components/broker-dropdown";
 import { PriceChart } from "@/components/price-chart";
 import { KeyStats } from "@/components/key-stats";
+import { FinancialQuality } from "@/components/financial-quality";
 import { ScoreBreakdown } from "@/components/score-breakdown";
 import { RedFlagsBox } from "@/components/red-flags-box";
 import { FinancialsChart } from "@/components/financials-chart";
@@ -31,9 +32,13 @@ export async function generateMetadata({
   const { symbol } = await params;
   const detail = await getStockDetail(decodeURIComponent(symbol));
   if (!detail) return { title: "Stock not found" };
+  const title = `${detail.stock.name} (${detail.stock.symbol})`;
+  const description = `Fundamental analysis, financials, and filings-grounded research for ${detail.stock.name}. Educational, not investment advice.`;
   return {
-    title: `${detail.stock.name} (${detail.stock.symbol})`,
-    description: `Fundamental analysis, financials, and filings-grounded research for ${detail.stock.name}. Educational, not investment advice.`,
+    title,
+    description,
+    openGraph: { title: `${title} — FilingLens`, description, type: "article" },
+    twitter: { card: "summary", title: `${title} — FilingLens`, description },
   };
 }
 
@@ -116,6 +121,15 @@ export default async function StockPage({ params }: StockPageProps) {
               </CardHeader>
               <CardContent>
                 <ScoreBreakdown score={score} explanations={explanations} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Financial quality</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <FinancialQuality metrics={metrics} />
               </CardContent>
             </Card>
 
