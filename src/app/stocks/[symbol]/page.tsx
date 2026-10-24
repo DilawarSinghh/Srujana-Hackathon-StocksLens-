@@ -31,9 +31,13 @@ export async function generateMetadata({
   const { symbol } = await params;
   const detail = await getStockDetail(decodeURIComponent(symbol));
   if (!detail) return { title: "Stock not found" };
+  const title = `${detail.stock.name} (${detail.stock.symbol})`;
+  const description = `Fundamental analysis, financials, and filings-grounded research for ${detail.stock.name}. Educational, not investment advice.`;
   return {
-    title: `${detail.stock.name} (${detail.stock.symbol})`,
-    description: `Fundamental analysis, financials, and filings-grounded research for ${detail.stock.name}. Educational, not investment advice.`,
+    title,
+    description,
+    openGraph: { title: `${title} — FilingLens`, description, type: "article" },
+    twitter: { card: "summary", title: `${title} — FilingLens`, description },
   };
 }
 
