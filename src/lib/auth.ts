@@ -1,5 +1,11 @@
+import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { User } from "@supabase/supabase-js";
+
+// Re-export the pure, isomorphic helpers so existing server-side imports from
+// `@/lib/auth` keep working. Client components must import these from
+// `@/lib/user` directly to avoid pulling in the server-only code below.
+export { getDisplayName, getAvatarUrl } from "@/lib/user";
 
 /**
  * Server-side current-user helper.
@@ -12,23 +18,4 @@ export async function getCurrentUser(): Promise<User | null> {
     data: { user },
   } = await supabase.auth.getUser();
   return user ?? null;
-}
-
-/** Display name derived from auth metadata, with sensible fallbacks. */
-export function getDisplayName(user: User | null): string {
-  if (!user) return "";
-  const meta = user.user_metadata ?? {};
-  return (
-    (meta.full_name as string) ||
-    (meta.name as string) ||
-    user.email ||
-    "Account"
-  );
-}
-
-/** Avatar URL from auth metadata, if present. */
-export function getAvatarUrl(user: User | null): string | null {
-  if (!user) return null;
-  const meta = user.user_metadata ?? {};
-  return (meta.avatar_url as string) || (meta.picture as string) || null;
 }

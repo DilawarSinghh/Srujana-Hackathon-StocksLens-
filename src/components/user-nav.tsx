@@ -7,7 +7,7 @@ import Image from "next/image";
 import { LogOut, User as UserIcon, Wallet } from "lucide-react";
 import { useUser } from "@/hooks/use-user";
 import { createClient } from "@/lib/supabase/client";
-import { getDisplayName, getAvatarUrl } from "@/lib/auth";
+import { getDisplayName, getAvatarUrl } from "@/lib/user";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {

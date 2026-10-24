@@ -141,5 +141,40 @@ to `auth.uid()`; holdings are reachable only through a portfolio the user owns.
 server/scripts only; throws if run in a browser). Database types live in
 `src/types/database.ts`.
 
-> Phases 2–12 add auth, the data pipeline, scoring, pages, filings ingestion,
-> chat, portfolio, methodology, and deployment. This README grows with each phase.
+## Google OAuth setup (Phase 2)
+
+Authentication is Google sign-in via Supabase Auth (`@supabase/ssr`).
+
+1. **Google Cloud Console** → *APIs & Services* → *Credentials* → *Create
+   Credentials* → *OAuth client ID* → application type **Web application**.
+2. Under **Authorized redirect URIs**, add your Supabase auth callback:
+   ```
+   https://<project-ref>.supabase.co/auth/v1/callback
+   ```
+3. Copy the generated **Client ID** and **Client secret**.
+4. **Supabase** → *Authentication* → *Providers* → **Google** → enable it and
+   paste the Client ID and Client secret → save.
+5. **Supabase** → *Authentication* → *URL Configuration*:
+   - **Site URL**: `http://localhost:3000` for local dev.
+   - **Redirect URLs**: add both `http://localhost:3000/**` and your deployed
+     Vercel URL (e.g. `https://stocklens.vercel.app/**`).
+6. Set `NEXT_PUBLIC_SITE_URL` in `.env.local` to match the environment
+   (localhost for dev, the Vercel URL in production).
+
+### How the flow works
+
+- `/login` renders a single **Continue with Google** button that calls
+  `supabase.auth.signInWithOAuth({ provider: 'google' })` with
+  `redirectTo = NEXT_PUBLIC_SITE_URL + '/auth/callback'`.
+- `/auth/callback` exchanges the `code` for a session, then redirects to the
+  `next` param or `/`. On error it redirects to `/login?error=...`.
+- `middleware.ts` refreshes the session on every request and protects
+  `/portfolio` (redirecting signed-out users to `/login?next=/portfolio`). Home,
+  stock pages, methodology, and login stay public. Chat requires login,
+  enforced in the API and UI (Phases 8–9).
+- Header shows **Sign in** when logged out, or an avatar + name dropdown
+  (Portfolio, Sign out) when logged in. Helpers: `getCurrentUser()` (server),
+  `useUser()` (client).
+
+> Phases 3–12 add the data pipeline, scoring, pages, filings ingestion, chat,
+> portfolio, methodology, and deployment. This README grows with each phase.
