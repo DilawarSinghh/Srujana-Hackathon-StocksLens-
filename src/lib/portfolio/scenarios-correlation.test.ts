@@ -4,7 +4,7 @@ import {
   computeVolatilityContributions,
   MIN_PAIR_OVERLAP_DAYS,
 } from "./correlation";
-import { runScenario, defaultAssumptions, type Scenario } from "./scenarios";
+import { runScenario, type Scenario } from "./scenarios";
 import { compareAllocations } from "./comparison";
 import type { PositionValue } from "./types";
 

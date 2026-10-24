@@ -23,13 +23,14 @@ import { DataFreshness } from "@/components/data-freshness";
 import { AddHoldingForm } from "@/components/portfolio/add-holding-form";
 import { PortfolioTable } from "@/components/portfolio/portfolio-table";
 import { RiskReportButton, type RiskReportBase } from "@/components/portfolio/risk-report-button";
-import { ConcentrationChart } from "@/components/portfolio/concentration-chart";
+import { ConcentrationChart } from "@/components/charts/lazy";
 import { StressTestPanel } from "@/components/portfolio/stress-test-panel";
 import { WhatIfSimulator } from "@/components/portfolio/what-if-simulator";
 import { CorrelationHeatmap } from "@/components/portfolio/correlation-heatmap";
 import { RiskLab } from "@/components/portfolio/risk-lab";
 import { ProfileForm } from "@/components/portfolio/profile-form";
 import { SamplePortfolioButton } from "@/components/portfolio/sample-portfolio-button";
+import { ExplainRiskButton } from "@/components/portfolio/explain-risk-button";
 
 export const dynamic = "force-dynamic";
 
@@ -294,6 +295,17 @@ export default async function PortfolioPage() {
                   </p>
                 </div>
               ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Explain my portfolio&apos;s risk
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ExplainRiskButton />
             </CardContent>
           </Card>
 
