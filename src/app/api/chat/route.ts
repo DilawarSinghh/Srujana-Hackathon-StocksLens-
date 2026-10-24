@@ -15,6 +15,7 @@ import {
   buildRefusal,
   sanitizeOutput,
 } from "@/lib/rag/guardrails";
+import { isRateLimited } from "@/lib/rag/rate-limit";
 import type { ChatSource, TablesInsert } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -34,8 +35,6 @@ const bodySchema = z.object({
     .optional()
     .default([]),
 });
-
-const RATE_LIMIT = 20; // user messages per rolling hour
 
 /** Build the citation metadata for the sources actually cited in the answer. */
 function citedSources(
@@ -93,15 +92,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unknown stock." }, { status: 404 });
   }
 
-  // 4. Rate limit: count this user's messages in the last hour.
-  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count } = await admin
-    .from("chat_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .eq("role", "user")
-    .gte("created_at", since);
-  if ((count ?? 0) >= RATE_LIMIT) {
+  // 4. Shared hourly rate limit (chat + portfolio explainer).
+  if (await isRateLimited(admin, user.id)) {
     return NextResponse.json(
       {
         error:
