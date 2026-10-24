@@ -75,6 +75,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
           {error ? (
             <ErrorState />
+          ) : items.length === 0 ? (
+            <NoDataState />
           ) : filtered.length === 0 ? (
             <EmptyState />
           ) : (
@@ -101,6 +103,18 @@ function EmptyState() {
         No stocks match this category yet. Try a different tab or sector, or run
         the data pipeline (<code>pnpm seed</code> → <code>pnpm fetch</code> →{" "}
         <code>pnpm score</code>).
+      </CardContent>
+    </Card>
+  );
+}
+
+function NoDataState() {
+  return (
+    <Card>
+      <CardContent className="p-8 text-center text-sm text-muted-foreground">
+        Market data hasn&apos;t been loaded yet. Run the data scripts to populate
+        it: <code>pnpm seed</code> → <code>pnpm fetch</code> →{" "}
+        <code>pnpm score</code>.
       </CardContent>
     </Card>
   );

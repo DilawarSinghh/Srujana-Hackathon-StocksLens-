@@ -144,8 +144,29 @@ export async function POST(request: Request) {
     console.error("retrieval:", (e as Error).message);
   }
 
-  // If nothing relevant AND no structured data, bail with a clean message.
+  // If no chunks came back, distinguish "no filings loaded at all" from
+  // "nothing relevant to this question" so the user gets a clear message.
   const dataBlock = ctx?.data ?? null;
+  if (chunks.length === 0) {
+    const { count: filingCount } = await admin
+      .from("filings")
+      .select("id", { count: "exact", head: true })
+      .eq("stock_id", stock.id);
+    if ((filingCount ?? 0) === 0) {
+      const msg =
+        "No filings have been loaded for this company yet, so I can't answer from source documents. An administrator needs to run the ingestion script.";
+      await admin.from("chat_messages").insert({
+        user_id: user.id,
+        stock_id: stock.id,
+        role: "assistant",
+        content: msg,
+        sources: [],
+      } satisfies TablesInsert<"chat_messages">);
+      return streamPlainText(msg);
+    }
+  }
+
+  // If nothing relevant AND no structured data, bail with a clean message.
   if (chunks.length === 0 && !dataBlock) {
     const msg =
       "I couldn't find that in the available filings for this company.";
