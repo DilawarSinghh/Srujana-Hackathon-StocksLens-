@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Pin the tracing root to this project (a stray lockfile in $HOME otherwise
+  // makes Next infer the wrong workspace root).
+  outputFileTracingRoot: __dirname,
   images: {
     remotePatterns: [
       // Google account avatars returned by OAuth.
