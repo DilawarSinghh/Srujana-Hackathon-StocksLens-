@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import type { ChatSource } from "@/types/database";
+import type { ChatSource, AuditResult } from "@/types/database";
 
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   sources?: ChatSource[];
+  audit?: AuditResult | null;
 }
 
 type ErrorKind = "auth" | "rate" | "generic" | null;

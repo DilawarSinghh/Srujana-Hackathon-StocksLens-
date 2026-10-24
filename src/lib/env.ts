@@ -33,6 +33,9 @@ const serverEnvSchema = z.object({
     .string()
     .min(1, "GOOGLE_GENERATIVE_AI_API_KEY is required"),
   GEMINI_CHAT_MODEL: z.string().min(1, "GEMINI_CHAT_MODEL is required"),
+  // Optional comma-separated fallback chain, tried in order on 429/5xx/timeout.
+  // GEMINI_CHAT_MODEL remains the final fallback if this is unset or exhausted.
+  GEMINI_CHAT_MODELS: z.string().optional(),
   GEMINI_EMBED_MODEL: z.string().min(1, "GEMINI_EMBED_MODEL is required"),
   EMBED_DIMENSIONS: z.coerce.number().int().positive().default(768),
   FINNHUB_API_KEY: z.string().optional(),
@@ -74,6 +77,7 @@ export function getServerEnv(): ServerEnv {
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
     GEMINI_CHAT_MODEL: process.env.GEMINI_CHAT_MODEL,
+    GEMINI_CHAT_MODELS: process.env.GEMINI_CHAT_MODELS,
     GEMINI_EMBED_MODEL: process.env.GEMINI_EMBED_MODEL,
     EMBED_DIMENSIONS: process.env.EMBED_DIMENSIONS,
     FINNHUB_API_KEY: process.env.FINNHUB_API_KEY,

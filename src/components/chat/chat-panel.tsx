@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Send, Trash2, MessageSquare, Loader2, ExternalLink } from "lucide-react";
+import { Send, Trash2, MessageSquare, Loader2, ExternalLink, Download } from "lucide-react";
 import type { ChatSource } from "@/types/database";
 import { useUser } from "@/hooks/use-user";
 import { useChatStream } from "@/components/chat/use-chat-stream";
+import { AuditBadge } from "@/components/chat/audit-badge";
+import { exportChatMarkdown } from "@/lib/chat-export";
 import { ChatMarkdown } from "@/lib/chat-markdown";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -153,11 +155,14 @@ function ChatInner({ symbol, name }: ChatPanelProps) {
                 >
                   {m.role === "assistant" ? (
                     m.content ? (
-                      <ChatMarkdown
-                        content={m.content}
-                        sources={m.sources ?? []}
-                        onCite={setActiveSource}
-                      />
+                      <>
+                        <ChatMarkdown
+                          content={m.content}
+                          sources={m.sources ?? []}
+                          onCite={setActiveSource}
+                        />
+                        <AuditBadge audit={m.audit} />
+                      </>
                     ) : (
                       <Loader2 className="h-4 w-4 animate-spin" aria-label="Thinking" />
                     )
@@ -224,14 +229,30 @@ function ChatInner({ symbol, name }: ChatPanelProps) {
               {input.length}/{MAX_CHARS}
             </span>
             {messages.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => void clear()}
-                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                aria-label="Clear chat"
-              >
-                <Trash2 className="h-3 w-3" /> Clear
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportChatMarkdown(
+                      `${name} (${symbol})`,
+                      messages,
+                      `chat-${symbol}-${new Date().toISOString().slice(0, 10)}.md`,
+                    )
+                  }
+                  className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                  aria-label="Export chat as Markdown"
+                >
+                  <Download className="h-3 w-3" /> Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void clear()}
+                  className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                  aria-label="Clear chat"
+                >
+                  <Trash2 className="h-3 w-3" /> Clear
+                </button>
+              </>
             ) : null}
           </div>
         </div>

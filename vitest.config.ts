@@ -10,6 +10,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // `server-only` throws when loaded outside a React Server Component.
+      // Stub it to an empty module so server-only units can be unit-tested.
+      "server-only": path.resolve(__dirname, "./src/test/server-only-stub.ts"),
     },
   },
 });

@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { streamText } from "ai";
-import { google } from "@ai-sdk/google";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getServerEnv } from "@/lib/env";
 import { retrieveChunks, type RetrievedChunk } from "@/lib/rag/retrieve";
 import { loadStockContext } from "@/lib/rag/context";
 import { SYSTEM_PROMPT, renderSources, renderDataBlock } from "@/lib/rag/prompt";
+import {
+  streamWithFallback,
+  AllModelsFailedError,
+} from "@/lib/rag/model-chain";
+import { auditAnswer } from "@/lib/rag/audit";
 import {
   isAdviceSeeking,
   buildRefusal,
@@ -162,11 +164,9 @@ export async function POST(request: Request) {
   const dataText = dataBlock ? renderDataBlock(dataBlock) : "DATA: (none)";
   const history = (body.history ?? []).slice(-6);
 
-  const { GEMINI_CHAT_MODEL } = getServerEnv();
-
   try {
-    const result = streamText({
-      model: google(GEMINI_CHAT_MODEL),
+    // Generate through the Gemini model-fallback chain (429/5xx/timeout → next).
+    const result = await streamWithFallback({
       system: SYSTEM_PROMPT,
       messages: [
         ...history.map((h) => ({ role: h.role, content: h.content })),
@@ -175,27 +175,28 @@ export async function POST(request: Request) {
           content: `${sourcesText}\n\n${dataText}\n\nQUESTION: ${body.message}`,
         },
       ],
-      // 8 + 10: OUTPUT GUARD + persistence happen on finish.
+      // OUTPUT GUARD + fact audit + persistence happen on finish.
       async onFinish({ text }) {
         const { text: safe } = sanitizeOutput(text, refusal);
         const sources = citedSources(chunks, safe);
+        // Fact audit: non-blocking for the stream, best-effort. Never rewrites.
+        const audit = await auditAnswer(safe, chunks, dataBlock);
         await admin.from("chat_messages").insert({
           user_id: user.id,
           stock_id: stock.id,
           role: "assistant",
           content: safe,
           sources,
+          audit,
         } satisfies TablesInsert<"chat_messages">);
       },
     });
 
-    // Attach cited-source metadata to the stream as a header so the client can
-    // render citation chips (final/authoritative copy is also persisted above).
-    const response = result.toDataStreamResponse();
-    return response;
+    return result.toDataStreamResponse();
   } catch (e) {
     const err = e as Error & { statusCode?: number };
-    const status = err?.statusCode === 429 ? 429 : 500;
+    const status =
+      e instanceof AllModelsFailedError || err?.statusCode === 429 ? 429 : 500;
     const message =
       status === 429
         ? "The AI service is busy right now. Please try again shortly."
