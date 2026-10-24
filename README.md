@@ -410,5 +410,59 @@ curl -i -X POST http://localhost:3000/api/chat \
 # -> streams the deterministic refusal (intent guard), never advice.
 ```
 
-> Phases 9–12 add the chat UI, portfolio, methodology, and deployment. This
-> README grows with each phase.
+## Chat UI (Phase 9)
+
+`ChatSlot` (`src/components/chat/`) renders the filings chat: a **sticky panel**
+on desktop (right column of the stock page) and a **floating "Ask AI" button +
+bottom sheet** on mobile.
+
+- **Empty state** with clickable prompt chips: "Summarize the key risks", "Why
+  is debt changing?", "What did management say about margins?", "What does the
+  auditor's report say?".
+- **User/assistant bubbles** with safe markdown (no `dangerouslySetInnerHTML`),
+  a streaming indicator, and auto-scroll.
+- `[Sn]` tags become **citation chips** ("Annual Report FY25 · p. 47"); clicking
+  opens a side sheet with the exact passage, section, and an "Open PDF at this
+  page" link (`source_url#page=N`).
+- **Logged out**: shows "Sign in with Google to chat" instead of the input.
+- **History** per user+stock loads from `chat_messages` (via
+  `/api/chat/history`); a "Clear chat" button deletes this user's messages for
+  this stock.
+- Persistent note under the input: "Educational analysis from company filings,
+  not investment advice."
+- Friendly errors for 401 / 429 / generic with Retry; input disabled while
+  streaming; 1000-char counter; `aria-live` for streamed messages; Enter to
+  send, Shift+Enter for a newline.
+
+The client reads the Vercel AI data-stream (`0:"token"` parts), so both the
+LLM path and the deterministic refusal/fallback path render identically.
+
+## Portfolio (Phase 10)
+
+`/portfolio` (login required) auto-creates a default portfolio on first visit.
+
+- **Add holding**: stock search (`/api/search`) + quantity + avg buy price (zod
+  validated); adding an existing stock updates it (upsert on
+  `portfolio_id, stock_id`); edit/delete with a confirm dialog.
+- **PortfolioTable**: stock, qty, avg price, current price, value, weight %,
+  P&L ₹ and % (labeled "historical, based on delayed prices").
+- **Pure math** (`src/lib/portfolio/`, vitest-tested):
+  - `concentration.ts`: sector weights, single-stock HHI; flags sector > 40%
+    and single stock > 25% as "High concentration".
+  - `beta.ts`: Σ weight × beta, skipping null betas, reporting covered weight %.
+  - `volatility.ts`: annualised volatility from the covariance matrix of 1y
+    daily returns when ≥ 60 overlapping days, else null "insufficient history".
+  - `stress.ts`: loss = Σ weight-value × beta × market_shock, in ₹ and %, per
+    holding (null beta assumed 1.0 and flagged).
+- **ConcentrationChart** (recharts) with warning badges.
+- **What-if simulator**: pick a stock + amount; preview before/after sector
+  weights, beta, and flags without saving.
+- **Stress test**: slider −40%…−5% (default −10%), results in ₹ and %, per
+  holding. `POST /api/portfolio/stress` (auth + zod) computes server-side.
+- Mandatory text: "Hypothetical estimate based on historical beta. Not a
+  prediction. Actual results can differ significantly." Hypothetical cards use a
+  distinct dashed style vs historical numbers.
+- Empty, loading, and error states.
+
+> Phases 11–12 add the methodology page/polish and deployment. This README
+> grows with each phase.

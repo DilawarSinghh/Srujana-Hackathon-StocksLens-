@@ -17,7 +17,7 @@ import { RedFlagsBox } from "@/components/red-flags-box";
 import { FinancialsChart } from "@/components/financials-chart";
 import { ShareholdingChart } from "@/components/shareholding-chart";
 import { PeerTable } from "@/components/peer-table";
-import { ChatPanelPlaceholder } from "@/components/chat-panel-placeholder";
+import { ChatSlot } from "@/components/chat/chat-slot";
 
 export const revalidate = 900;
 
@@ -156,11 +156,9 @@ export default async function StockPage({ params }: StockPageProps) {
             </Card>
           </div>
 
-          {/* Sticky chat slot (desktop) */}
+          {/* Chat slot: sticky on desktop, floating sheet on mobile */}
           <aside className="lg:col-span-1">
-            <div className="lg:sticky lg:top-20">
-              <ChatPanelPlaceholder name={stock.name} />
-            </div>
+            <ChatSlot symbol={stock.symbol} name={stock.name} />
           </aside>
         </div>
 

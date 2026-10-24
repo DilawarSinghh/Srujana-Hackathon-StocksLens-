@@ -22,6 +22,16 @@ export function formatPrice(value: number | null | undefined): string {
   })}`;
 }
 
+/** Rupee amount with a sign, for P&L (e.g. +₹1,234.00 / -₹500.00). */
+export function formatSignedRupee(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return NA;
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}₹${Math.abs(value).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 /** A ratio stored as a fraction (e.g. 0.182) shown as a percent. */
 export function formatPercentFromFraction(
   value: number | null | undefined,
