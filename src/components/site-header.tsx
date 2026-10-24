@@ -3,6 +3,7 @@ import { LineChart, Search } from "lucide-react";
 import { siteConfig } from "@/config/site";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { UserNav } from "@/components/user-nav";
 
 /**
  * Global site header: logo, nav, search placeholder, login placeholder,
@@ -41,10 +42,7 @@ export function SiteHeader() {
 
           <ThemeToggle />
 
-          {/* Login placeholder — Google OAuth lands in Phase 2. */}
-          <Button variant="outline" size="sm" disabled>
-            Sign in
-          </Button>
+          <UserNav />
         </div>
       </div>
     </header>

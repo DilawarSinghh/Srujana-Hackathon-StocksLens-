@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  images: {
+    remotePatterns: [
+      // Google account avatars returned by OAuth.
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+    ],
+  },
   // Security headers applied to every route.
   async headers() {
     return [

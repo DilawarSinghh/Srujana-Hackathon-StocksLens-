@@ -101,6 +101,45 @@ data/
 - Missing financial data is stored as `NULL` and shown as "Not available".
 - Indian money values are in INR crore; units are always shown (₹ Cr, %, x).
 
-> Phases 1–12 add the database, auth, data pipeline, scoring, pages, filings
-> ingestion, chat, portfolio, methodology, and deployment. This README grows
-> with each phase.
+## Database (Phase 1)
+
+SQL migrations live in `supabase/migrations/` and are numbered in apply order:
+
+| File | Contents |
+| --- | --- |
+| `0001_extensions_and_profiles.sql` | `vector` + `pg_trgm` extensions, `profiles` table, auto-profile trigger |
+| `0002_stocks_and_market_data.sql` | `stocks`, `price_history`, `fundamentals_annual`, `stock_metrics`, `governance_inputs` |
+| `0003_scores_and_filings.sql` | `scores` + `latest_scores` view, `filings`, `filing_chunks` (HNSW), `match_filing_chunks()` |
+| `0004_user_data.sql` | `portfolios`, `holdings`, `chat_messages` |
+| `0005_rls_policies.sql` | Row Level Security on every table |
+| `0006_storage_filings_bucket.sql` | public `filings` Storage bucket + read policy |
+
+**Run the migrations** (choose one):
+
+- **Supabase SQL Editor** — open each file in order and run it.
+- **Supabase CLI** (recommended):
+  ```bash
+  supabase link --project-ref <your-project-ref>
+  supabase db push          # applies everything in supabase/migrations
+  ```
+- **psql**:
+  ```bash
+  for f in supabase/migrations/*.sql; do
+    psql "$SUPABASE_DB_URL" -f "$f"
+  done
+  ```
+
+**Security model (RLS):** public reference/market data (`stocks`, `price_history`,
+`fundamentals_annual`, `stock_metrics`, `governance_inputs`, `scores`, `filings`,
+`filing_chunks`) is **read-only** for clients — no client write policies exist, so
+only the service role (scripts/server) can write. `profiles` lets a user read and
+update their own row. `portfolios`, `holdings`, and `chat_messages` are restricted
+to `auth.uid()`; holdings are reachable only through a portfolio the user owns.
+
+**Supabase clients** (`src/lib/supabase/`): `client.ts` (browser, anon key),
+`server.ts` (cookie-based via `@supabase/ssr`), `admin.ts` (service role —
+server/scripts only; throws if run in a browser). Database types live in
+`src/types/database.ts`.
+
+> Phases 2–12 add auth, the data pipeline, scoring, pages, filings ingestion,
+> chat, portfolio, methodology, and deployment. This README grows with each phase.
