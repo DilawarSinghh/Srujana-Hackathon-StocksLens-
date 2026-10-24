@@ -52,6 +52,7 @@ export interface PiotroskiResult {
 
 const PIOTROSKI_MIN_CRITERIA = 6;
 
+// Adapted from Nipun-AI (MIT License). See NOTICE.md.
 /**
  * Real Piotroski F-Score from the current and prior fiscal year.
  * One point each for 9 criteria; a criterion with missing inputs is SKIPPED

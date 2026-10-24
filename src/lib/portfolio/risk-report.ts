@@ -45,6 +45,7 @@ const INR = (v: number): string =>
  * Generate and download the risk report PDF. jsPDF is imported lazily so it is
  * never in the initial bundle. Pure data in, side-effect (download) out.
  */
+// Adapted from Nipun-AI (MIT License). See NOTICE.md.
 export async function generateRiskReportPdf(
   model: RiskReportModel,
   filename: string,

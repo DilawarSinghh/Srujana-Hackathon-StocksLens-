@@ -39,6 +39,7 @@ function buildSourcesBlock(chunks: RetrievedChunk[]): string {
     .join("\n\n");
 }
 
+// Adapted from Nipun-AI (MIT License). See NOTICE.md.
 export async function auditAnswer(
   answer: string,
   chunks: RetrievedChunk[],

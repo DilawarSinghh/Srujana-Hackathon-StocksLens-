@@ -58,6 +58,7 @@ type StreamTextOptions = Omit<Parameters<typeof streamText>[0], "model">;
  * `generateText` call first; the first model that answers the probe is used for
  * the real stream. On transient probe failures we advance to the next model.
  */
+// Adapted from Nipun-AI (MIT License). See NOTICE.md.
 export async function streamWithFallback(
   options: StreamTextOptions,
 ): Promise<ReturnType<typeof streamText>> {
