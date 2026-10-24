@@ -13,7 +13,13 @@ import {
   type StockForScoring,
   type ScoringMetrics,
 } from "@/lib/scoring/score";
-import type { TablesInsert } from "@/types/database";
+import {
+  computePiotroski,
+  computeAltmanZDoublePrime,
+  computeDividend,
+  type QualityFundamentals,
+} from "@/lib/scoring/quality";
+import type { AltmanZone, TablesInsert } from "@/types/database";
 
 interface StockRow {
   id: string;
@@ -52,13 +58,11 @@ async function main() {
 
   const { data: fundamentals } = await db
     .from("fundamentals_annual")
-    .select("stock_id, fiscal_year, operating_cash_flow, net_profit")
+    .select("*")
     .order("fiscal_year", { ascending: true });
 
-  const fundByStock = new Map<
-    string,
-    { fiscal_year: number; operating_cash_flow: number | null; net_profit: number | null }[]
-  >();
+  type FundRow = NonNullable<typeof fundamentals>[number];
+  const fundByStock = new Map<string, FundRow[]>();
   for (const f of fundamentals ?? []) {
     const arr = fundByStock.get(f.stock_id) ?? [];
     arr.push(f);
@@ -92,24 +96,70 @@ async function main() {
     sectorMedianPe.set(sector, median(pes));
   }
 
+  // Quality upserts collected while building scoring inputs.
+  const qualityUpserts: TablesInsert<"stock_metrics">[] = [];
+
+  /** Pick the quality fundamentals we need from a fundamentals_annual row. */
+  const toQuality = (f: FundRow): QualityFundamentals => ({
+    revenue: f.revenue,
+    net_profit: f.net_profit,
+    operating_cash_flow: f.operating_cash_flow,
+    total_assets: f.total_assets,
+    current_assets: f.current_assets,
+    current_liabilities: f.current_liabilities,
+    long_term_debt: f.long_term_debt,
+    total_liabilities: f.total_liabilities,
+    retained_earnings: f.retained_earnings,
+    total_equity: f.total_equity,
+    ebit: f.ebit,
+    gross_profit: f.gross_profit,
+    dividends_paid: f.dividends_paid,
+    shares_outstanding: f.shares_outstanding,
+  });
+
   // Build scoring inputs.
   const scoringInputs: StockForScoring[] = (stocks as StockRow[]).map((s) => {
     const m = metricsById.get(s.id);
     const funds = fundByStock.get(s.id) ?? [];
     const latestFund = funds.at(-1);
+    const priorFund = funds.at(-2);
     const recentOcf = funds.slice(-3).map((f) => f.operating_cash_flow);
 
     const sector = s.sector ?? "Unknown";
+    const bank = isBankSector(sector);
     const medPe = sectorMedianPe.get(sector) ?? null;
     const peRel =
       m?.pe != null && medPe != null && medPe > 0 ? m.pe / medPe : null;
 
-    const ocfRatio = isBankSector(sector)
+    const ocfRatio = bank
       ? null
       : cappedOcfRatio(
           latestFund?.operating_cash_flow ?? null,
           latestFund?.net_profit ?? null,
         );
+
+    // --- Financial quality (Piotroski / Altman / dividend) ---
+    // Skip Piotroski/Altman for banks/NBFCs; dividend payout still applies.
+    const piotroski =
+      !bank && latestFund && priorFund
+        ? computePiotroski(toQuality(latestFund), toQuality(priorFund))
+        : { score: null, availableCriteria: 0, criteria: [] };
+    const altman = latestFund
+      ? computeAltmanZDoublePrime(toQuality(latestFund), bank)
+      : { z: null, zone: "not_applicable" as AltmanZone };
+    const dividend = latestFund
+      ? computeDividend(latestFund.dividends_paid, latestFund.net_profit)
+      : { payoutRatio: null, safety: "not_available" as const };
+
+    qualityUpserts.push({
+      stock_id: s.id,
+      piotroski_score: piotroski.score,
+      piotroski_available_criteria: piotroski.availableCriteria,
+      altman_z: altman.z,
+      altman_zone: altman.zone,
+      dividend_payout_ratio: dividend.payoutRatio,
+      dividend_safety: dividend.safety,
+    });
 
     const metrics: ScoringMetrics = {
       roe: m?.roe ?? null,
@@ -126,6 +176,7 @@ async function main() {
       peg: m?.peg ?? null,
       volatility_1y: m?.volatility_1y ?? null,
       max_drawdown_3y: m?.max_drawdown_3y ?? null,
+      piotroski_score: piotroski.score,
     };
 
     const g = govByStock.get(s.id);
@@ -145,8 +196,18 @@ async function main() {
           }
         : null,
       recentOcf,
+      altmanZone: altman.zone,
+      piotroskiScore: piotroski.score,
     };
   });
+
+  // Persist the per-stock quality columns to stock_metrics (keyed on stock_id).
+  if (qualityUpserts.length > 0) {
+    const { error: qErr } = await db
+      .from("stock_metrics")
+      .upsert(qualityUpserts, { onConflict: "stock_id" });
+    if (qErr) throw new Error(`quality upsert: ${qErr.message}`);
+  }
 
   // Group by sector and score each group (universe used for small-peer fallback).
   const bySector = new Map<string, StockForScoring[]>();

@@ -220,6 +220,7 @@ function baseMetrics(over: Partial<ScoringMetrics> = {}): ScoringMetrics {
     peg: 1.2,
     volatility_1y: 0.25,
     max_drawdown_3y: -0.3,
+    piotroski_score: 6,
     ...over,
   };
 }
@@ -243,6 +244,8 @@ function mkStock(
       related_party_trend: "stable",
     },
     recentOcf: [100, 120, 140],
+    altmanZone: "safe",
+    piotroskiScore: 6,
     ...extra,
   };
 }

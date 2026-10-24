@@ -12,6 +12,7 @@ import { ScoreBadge } from "@/components/score-badge";
 import { BrokerDropdown } from "@/components/broker-dropdown";
 import { PriceChart } from "@/components/price-chart";
 import { KeyStats } from "@/components/key-stats";
+import { FinancialQuality } from "@/components/financial-quality";
 import { ScoreBreakdown } from "@/components/score-breakdown";
 import { RedFlagsBox } from "@/components/red-flags-box";
 import { FinancialsChart } from "@/components/financials-chart";
@@ -120,6 +121,15 @@ export default async function StockPage({ params }: StockPageProps) {
               </CardHeader>
               <CardContent>
                 <ScoreBreakdown score={score} explanations={explanations} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Financial quality</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <FinancialQuality metrics={metrics} />
               </CardContent>
             </Card>
 

@@ -4,7 +4,7 @@
  * engine AND the methodology page so the published method always matches code.
  */
 
-export const FORMULA_VERSION = "v1.0";
+export const FORMULA_VERSION = "v1.1";
 
 export type PillarKey =
   | "profitability"
@@ -72,6 +72,9 @@ export const PILLAR_METRICS: Record<
     { key: "debt_to_equity", label: "Debt / Equity", direction: "low", unit: "x", appliesToBanks: false },
     { key: "interest_coverage", label: "Interest coverage", direction: "high", unit: "x", appliesToBanks: true },
     { key: "ocf_to_net_profit", label: "Operating cash flow / Net profit", direction: "high", unit: "x", appliesToBanks: false },
+    // Piotroski F-Score (0-9), percentile-ranked within the sector. Skipped for
+    // banks/NBFCs (the model does not apply to them).
+    { key: "piotroski_score", label: "Piotroski F-Score", direction: "high", unit: "ratio", appliesToBanks: false },
   ],
   valuation: [
     { key: "pe_rel_sector", label: "P/E vs sector median", direction: "low", unit: "x", appliesToBanks: true },
@@ -85,6 +88,12 @@ export const PILLAR_METRICS: Record<
 
 /** OCF/net-profit ratio is capped at this value before percentile ranking. */
 export const OCF_RATIO_CAP = 1.5;
+
+/**
+ * Altman Z'' zone contribution to the financial-health pillar (direct points,
+ * NOT percentile): safe 100, grey 50, distress 10. not_applicable/unknown skip.
+ */
+export const ALTMAN_ZONE_POINTS = { safe: 100, grey: 50, distress: 10 } as const;
 
 /** Sectors treated as banks/NBFCs (skip D/E and OCF metrics, renormalize). */
 export const BANK_SECTORS = new Set(["Banking", "NBFC", "Financial Services"]);
@@ -124,10 +133,36 @@ export const GOVERNANCE_RULES = {
   promoterHoldingChange: "worse than -5 points = 30, else 100",
 } as const;
 
-/** Red-flag definitions (documented for the methodology page). */
+/**
+ * Red-flag definitions (documented for the methodology page).
+ * `informational: true` means the flag is shown but does NOT cap the score.
+ */
 export const RED_FLAG_DEFINITIONS = [
   { code: "PLEDGE_HIGH", title: "High promoter pledge", rule: "Promoter pledge > 30%" },
   { code: "NEG_OCF_3Y", title: "Persistent negative cash flow", rule: "Negative operating cash flow in the 3 latest consecutive years" },
   { code: "AUDITOR_FLAG", title: "Adverse auditor opinion", rule: "Auditor opinion qualified / adverse / disclaimer" },
   { code: "RPT_SPIKE", title: "Rising related-party transactions", rule: "Related-party trend sharply rising" },
+  { code: "ALTMAN_DISTRESS", title: "Altman distress zone", rule: "Altman Z''-Score in the distress band (historical indicator, not a prediction)", informational: true },
+  { code: "PIOTROSKI_LOW", title: "Weak Piotroski score", rule: "Piotroski F-Score of 0-2 of 9", informational: true },
 ] as const;
+
+/** Piotroski scoring rules (documented for the methodology page). */
+export const PIOTROSKI_RULES = {
+  criteria:
+    "9 criteria (1 point each): positive ROA; positive operating cash flow; ROA improved YoY; cash flow > net income; long-term debt ratio fell; current ratio rose; no new shares issued; gross margin improved; asset turnover improved.",
+  missing:
+    "A criterion with missing data is skipped (not scored 0). If fewer than 6 criteria are available the score is 'Not enough data'. Banks/NBFCs are skipped entirely.",
+} as const;
+
+/** Altman Z'' scoring rules (documented for the methodology page). */
+export const ALTMAN_RULES = {
+  formula:
+    "Z'' = 6.56·(working capital/total assets) + 3.26·(retained earnings/total assets) + 6.72·(EBIT/total assets) + 1.05·(book equity/total liabilities).",
+  zones: "Above 2.6 = safe, 1.1-2.6 = grey, below 1.1 = distress. Not applicable to banks/NBFCs.",
+} as const;
+
+/** Dividend-safety rules (documented for the methodology page). */
+export const DIVIDEND_RULES = {
+  payout: "Payout ratio = dividends paid / net profit (only when net profit > 0).",
+  safety: "≤60% = strong, ≤90% = moderate, otherwise weak; 'Not available' when inputs are missing.",
+} as const;

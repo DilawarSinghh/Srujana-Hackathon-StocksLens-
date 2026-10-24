@@ -15,6 +15,7 @@ export interface StockListItem {
   prev_close: number | null;
   debt_to_equity: number | null;
   dividend_yield: number | null;
+  dividend_safety: Tables<"stock_metrics">["dividend_safety"];
   pe: number | null;
   roe: number | null;
   // score
@@ -82,6 +83,7 @@ export async function getStockListing(): Promise<{
       prev_close: m?.prev_close ?? null,
       debt_to_equity: m?.debt_to_equity ?? null,
       dividend_yield: m?.dividend_yield ?? null,
+      dividend_safety: m?.dividend_safety ?? null,
       pe: m?.pe ?? null,
       roe: m?.roe ?? null,
       total_score: sc?.total_score ?? null,

@@ -5,7 +5,20 @@ export interface RedFlagInputs {
   governance: GovernanceInput | null;
   /** Operating cash flow for the 3 latest fiscal years, newest last. */
   recentOcf: (number | null)[];
+  /** Altman Z''-Score zone (null / not_applicable when unavailable). */
+  altmanZone?: "safe" | "grey" | "distress" | "not_applicable" | null;
+  /** Piotroski F-Score (null when not enough data or bank/NBFC). */
+  piotroskiScore?: number | null;
 }
+
+/**
+ * Red-flag codes that are INFORMATIONAL only: they are shown to the user but do
+ * NOT trigger the score cap (unlike governance/cash-flow flags).
+ */
+export const INFORMATIONAL_RED_FLAG_CODES = new Set([
+  "ALTMAN_DISTRESS",
+  "PIOTROSKI_LOW",
+]);
 
 /**
  * Evaluate red flags. Each rule is checked ONLY when the data exists.
@@ -61,6 +74,28 @@ export function evaluateRedFlags(inputs: RedFlagInputs): RedFlag[] {
       explanation:
         "Related-party transactions are rising sharply. Large or growing dealings with connected entities can be a governance concern.",
       value: g.related_party_trend,
+    });
+  }
+
+  // 5. Altman Z'' in the distress band (INFORMATIONAL — does not cap the score).
+  if (inputs.altmanZone === "distress") {
+    flags.push({
+      code: "ALTMAN_DISTRESS",
+      title: "Altman distress zone",
+      explanation:
+        "The Altman Z''-Score falls in the distress band. This is a historical financial-stress indicator, not a prediction of future failure.",
+      value: inputs.altmanZone,
+    });
+  }
+
+  // 6. Low Piotroski F-Score (0-2) (INFORMATIONAL — does not cap the score).
+  if (inputs.piotroskiScore != null && inputs.piotroskiScore <= 2) {
+    flags.push({
+      code: "PIOTROSKI_LOW",
+      title: "Weak Piotroski score",
+      explanation:
+        "The Piotroski F-Score is 0-2 of 9, pointing to weak recent fundamental quality. Informational only.",
+      value: inputs.piotroskiScore,
     });
   }
 

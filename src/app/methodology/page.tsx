@@ -11,6 +11,9 @@ import {
   RED_FLAG_CAP,
   MIN_PEERS,
   FORMULA_VERSION,
+  PIOTROSKI_RULES,
+  ALTMAN_RULES,
+  DIVIDEND_RULES,
   type PillarKey,
 } from "@/lib/scoring/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,6 +114,30 @@ export default function MethodologyPage() {
         </ul>
       </Section>
 
+      <Section title="Financial quality (Piotroski, Altman, dividend)">
+        <p className="mb-3 text-sm text-muted-foreground">
+          Three extra, code-computed quality checks feed the Financial Health
+          pillar and a dedicated card on each stock page. They are historical
+          indicators, not predictions.
+        </p>
+        <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+          <li>
+            <strong>Piotroski F-Score (0–9):</strong> {PIOTROSKI_RULES.criteria}{" "}
+            {PIOTROSKI_RULES.missing} It is percentile-ranked within the sector
+            as one Financial Health metric.
+          </li>
+          <li>
+            <strong>Altman Z&apos;&apos;-Score:</strong> {ALTMAN_RULES.formula}{" "}
+            {ALTMAN_RULES.zones} It contributes direct Financial Health points
+            (safe 100, grey 50, distress 10).
+          </li>
+          <li>
+            <strong>Dividend safety:</strong> {DIVIDEND_RULES.payout}{" "}
+            {DIVIDEND_RULES.safety}
+          </li>
+        </ul>
+      </Section>
+
       <Section title="Governance (rule-based)">
         <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
           <li>Promoter pledge: {GOVERNANCE_RULES.pledge}</li>
@@ -126,13 +153,18 @@ export default function MethodologyPage() {
 
       <Section title="Red-flag caps">
         <p className="mb-3 text-sm text-muted-foreground">
-          Each rule is checked only when the underlying data exists. If any flag
-          triggers, the total score is capped at <strong>{RED_FLAG_CAP}</strong>.
+          Each rule is checked only when the underlying data exists. If any{" "}
+          <strong>capping</strong> flag triggers, the total score is capped at{" "}
+          <strong>{RED_FLAG_CAP}</strong>. Flags marked{" "}
+          <em>informational</em> are shown but never change the score.
         </p>
         <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
           {RED_FLAG_DEFINITIONS.map((f) => (
             <li key={f.code}>
               <strong>{f.title}:</strong> {f.rule}
+              {"informational" in f && f.informational ? (
+                <span className="ml-1 italic">(informational only)</span>
+              ) : null}
             </li>
           ))}
         </ul>
