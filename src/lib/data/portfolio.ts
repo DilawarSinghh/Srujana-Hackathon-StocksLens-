@@ -55,7 +55,7 @@ export async function getPortfolio(userId: string): Promise<PortfolioData | null
     supabase.from("stocks").select("id, symbol, name, sector").in("id", stockIds),
     supabase
       .from("stock_metrics")
-      .select("stock_id, price, beta, as_of")
+      .select("stock_id, price, beta, as_of, piotroski_score, altman_zone")
       .in("stock_id", stockIds),
   ]);
 
@@ -75,6 +75,8 @@ export async function getPortfolio(userId: string): Promise<PortfolioData | null
       avgBuyPrice: Number(h.avg_buy_price),
       currentPrice: m?.price ?? null,
       beta: m?.beta ?? null,
+      piotroskiScore: m?.piotroski_score ?? null,
+      altmanZone: m?.altman_zone ?? null,
     };
   });
 

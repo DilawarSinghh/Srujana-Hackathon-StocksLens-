@@ -66,6 +66,8 @@ export function WhatIfSimulator({ holdings }: WhatIfSimulatorProps) {
         avgBuyPrice: extra.price,
         currentPrice: extra.price,
         beta: extra.beta,
+        piotroskiScore: null,
+        altmanZone: null,
       },
     ];
     return summarise(simulated);

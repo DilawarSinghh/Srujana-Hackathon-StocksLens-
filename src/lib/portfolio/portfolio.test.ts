@@ -24,6 +24,8 @@ function h(
     avgBuyPrice: avg,
     currentPrice: price,
     beta,
+    piotroskiScore: null,
+    altmanZone: null,
   };
 }
 
