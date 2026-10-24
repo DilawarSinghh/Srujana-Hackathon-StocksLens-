@@ -7,6 +7,7 @@ export const siteConfig = {
   nav: [
     { title: "Home", href: "/" },
     { title: "Portfolio", href: "/portfolio" },
+    { title: "Documents", href: "/documents" },
     { title: "Methodology", href: "/methodology" },
   ],
 } as const;
