@@ -52,7 +52,7 @@ export async function getPortfolio(userId: string): Promise<PortfolioData | null
 
   const stockIds = holdings.map((h) => h.stock_id);
   const [stocksRes, metricsRes] = await Promise.all([
-    supabase.from("stocks").select("id, symbol, name, sector").in("id", stockIds),
+    supabase.from("stocks").select("id, symbol, name, sector, cap_category").in("id", stockIds),
     supabase
       .from("stock_metrics")
       .select("stock_id, price, beta, as_of, piotroski_score, altman_zone")
@@ -77,10 +77,34 @@ export async function getPortfolio(userId: string): Promise<PortfolioData | null
       beta: m?.beta ?? null,
       piotroskiScore: m?.piotroski_score ?? null,
       altmanZone: m?.altman_zone ?? null,
+      capCategory: s?.cap_category ?? null,
     };
   });
 
   return { portfolioId, holdings: enriched, lastUpdated };
+}
+
+/** Load the investor profile for a portfolio, or null if none is set. */
+export async function getPortfolioProfile(
+  portfolioId: string,
+): Promise<{
+  riskTolerance: "conservative" | "moderate" | "aggressive";
+  horizonYears: number;
+  liquidityNeedPct: number;
+} | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("portfolio_profiles")
+    .select("risk_tolerance, horizon_years, liquidity_need_pct")
+    .eq("portfolio_id", portfolioId)
+    .maybeSingle();
+  // A missing table (migration 0009 not applied) must not crash the page.
+  if (error || !data) return null;
+  return {
+    riskTolerance: data.risk_tolerance,
+    horizonYears: data.horizon_years,
+    liquidityNeedPct: Number(data.liquidity_need_pct),
+  };
 }
 
 /** 1y daily returns per symbol for the covariance-based volatility. */

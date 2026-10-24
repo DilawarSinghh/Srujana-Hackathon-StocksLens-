@@ -1,9 +1,21 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, getDisplayName } from "@/lib/auth";
-import { getPortfolio, getReturnsForSymbols } from "@/lib/data/portfolio";
+import {
+  getPortfolio,
+  getReturnsForSymbols,
+  getPortfolioProfile,
+} from "@/lib/data/portfolio";
 import { positionValues, computeConcentration } from "@/lib/portfolio/concentration";
 import { computePortfolioBeta } from "@/lib/portfolio/beta";
 import { computePortfolioVolatility } from "@/lib/portfolio/volatility";
+import {
+  computeCorrelationMatrix,
+  computeVolatilityContributions,
+} from "@/lib/portfolio/correlation";
+import {
+  evaluateGoalConflicts,
+  type PortfolioObservations,
+} from "@/lib/portfolio/goal-conflicts";
 import { formatPrice, formatPercentFromFraction } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Disclaimer } from "@/components/disclaimer";
@@ -14,6 +26,10 @@ import { RiskReportButton, type RiskReportBase } from "@/components/portfolio/ri
 import { ConcentrationChart } from "@/components/portfolio/concentration-chart";
 import { StressTestPanel } from "@/components/portfolio/stress-test-panel";
 import { WhatIfSimulator } from "@/components/portfolio/what-if-simulator";
+import { CorrelationHeatmap } from "@/components/portfolio/correlation-heatmap";
+import { RiskLab } from "@/components/portfolio/risk-lab";
+import { ProfileForm } from "@/components/portfolio/profile-form";
+import { SamplePortfolioButton } from "@/components/portfolio/sample-portfolio-button";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +55,41 @@ export default async function PortfolioPage() {
 
   const isEmpty = holdings.length === 0;
 
+  // Correlation + per-holding volatility contribution (F-06 "relationships").
+  const pricedSymbols = positions
+    .filter((p) => p.weight != null)
+    .map((p) => p.symbol);
+  const correlation = computeCorrelationMatrix(pricedSymbols, returns);
+  const volContrib = computeVolatilityContributions(weightBySymbol, returns);
+
+  // Investor profile + goal-conflict warnings.
+  const portfolioId = portfolio?.portfolioId ?? null;
+  const profile = portfolioId ? await getPortfolioProfile(portfolioId) : null;
+  const smallCapWeight = positions
+    .filter((p) => p.weight != null)
+    .reduce((s, p) => {
+      const h = holdings.find((x) => x.symbol === p.symbol);
+      return h?.capCategory === "small" ? s + (p.weight as number) : s;
+    }, 0);
+  const obs: PortfolioObservations = {
+    beta: betaResult.beta,
+    volatility: vol.volatility,
+    smallCapWeight,
+    topSectorWeight: concentration.topSector?.weight ?? 0,
+    topSectorName: concentration.topSector?.sector ?? null,
+    illiquidWeight: smallCapWeight, // small-cap proxy for liquidity risk
+  };
+  const goalConflicts = profile ? evaluateGoalConflicts(profile, obs) : [];
+
+  // Serializable data for the client Risk Lab.
+  const betaEntries: [string, number | null][] = holdings.map((h) => [
+    h.symbol,
+    h.beta,
+  ]);
+  const sectors = [
+    ...new Set(positions.map((p) => p.sector).filter((s): s is string => !!s)),
+  ].sort();
+
   // Serializable base for the client-side risk-report PDF.
   const qualityBySymbol = new Map(
     holdings.map((h) => [h.symbol, { piotroski: h.piotroskiScore, altman: h.altmanZone }]),
@@ -62,6 +113,13 @@ export default async function PortfolioPage() {
     beta: betaResult.beta,
     betaCoveredWeight: betaResult.coveredWeight,
     volatility: vol.volatility,
+    averageCorrelation: correlation.averageCorrelation,
+    volContributions: volContrib.contributions,
+    goalConflicts: goalConflicts.map((c) => ({
+      message: c.message,
+      rule: c.rule,
+      numbers: c.numbers,
+    })),
   };
 
   return (
@@ -92,9 +150,13 @@ export default async function PortfolioPage() {
 
       {isEmpty ? (
         <Card>
-          <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            Your portfolio is empty. Add a holding above to see concentration,
-            beta, and the market-drop stress test.
+          <CardContent className="flex flex-col items-center gap-4 p-8 text-center text-sm text-muted-foreground">
+            <p>
+              Your portfolio is empty. Add a holding above to see concentration,
+              correlation, scenarios, and goal-conflict checks — or load a demo
+              portfolio to explore instantly.
+            </p>
+            <SamplePortfolioButton />
           </CardContent>
         </Card>
       ) : (
@@ -152,12 +214,111 @@ export default async function PortfolioPage() {
             </Card>
           </div>
 
+          {/* Risk profile + goal-conflict warnings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Your risk profile</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <ProfileForm initial={profile} />
+              {!profile ? (
+                <p className="text-xs text-muted-foreground">
+                  Set your profile to see goal-conflict checks (horizon, risk
+                  tolerance, and near-term liquidity vs your holdings).
+                </p>
+              ) : goalConflicts.length === 0 ? (
+                <p className="text-sm text-strong">
+                  No goal conflicts detected between your profile and this
+                  portfolio.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {goalConflicts.map((c) => (
+                    <li
+                      key={c.code}
+                      className="rounded-md border border-average/40 bg-average/10 px-3 py-2 text-sm"
+                    >
+                      <p>{c.message}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        Rule: {c.rule} · {c.numbers}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Correlation + volatility contribution */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                How your holdings move together
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {correlation.averageCorrelation != null ? (
+                <p className="text-sm text-muted-foreground">
+                  Average pairwise correlation of your holdings is{" "}
+                  <span className="font-medium text-foreground">
+                    {correlation.averageCorrelation.toFixed(2)}
+                  </span>
+                  . Values near +1 move together (less diversification); near 0
+                  move independently; below 0 tend to offset.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Not enough overlapping price history yet to compute
+                  correlations (need ≥60 common days per pair).
+                </p>
+              )}
+              <CorrelationHeatmap result={correlation} />
+              {volContrib.contributions.length > 0 ? (
+                <div>
+                  <p className="mb-1 text-sm font-medium">
+                    Contribution to portfolio volatility
+                  </p>
+                  <ul className="space-y-1 text-xs">
+                    {[...volContrib.contributions]
+                      .sort((a, b) => b.contribution - a.contribution)
+                      .map((c) => (
+                        <li key={c.symbol} className="flex justify-between tabular-nums">
+                          <span>{c.symbol}</span>
+                          <span>{(c.contribution * 100).toFixed(1)}%</span>
+                        </li>
+                      ))}
+                  </ul>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Historical observation from the covariance of 1y daily
+                    returns.
+                  </p>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">What-if simulator</CardTitle>
             </CardHeader>
             <CardContent>
               <WhatIfSimulator holdings={holdings} />
+            </CardContent>
+          </Card>
+
+          {/* Scenario lab (F-06 scenarios + assumptions + comparison) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Scenario lab (hypothetical)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <RiskLab
+                positions={positions}
+                betaEntries={betaEntries}
+                sectors={sectors}
+              />
             </CardContent>
           </Card>
 

@@ -442,6 +442,23 @@ type UserDocumentInsert = {
   created_at?: string;
 }
 
+type PortfolioProfileRow = {
+  portfolio_id: string;
+  risk_tolerance: "conservative" | "moderate" | "aggressive";
+  horizon_years: number;
+  liquidity_need_pct: number;
+  created_at: string;
+  updated_at: string;
+}
+type PortfolioProfileInsert = {
+  portfolio_id: string;
+  risk_tolerance?: "conservative" | "moderate" | "aggressive";
+  horizon_years?: number;
+  liquidity_need_pct?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 type UserDocumentChunkRow = {
   id: string;
   document_id: string;
@@ -482,6 +499,7 @@ export interface Database {
       chat_messages: { Row: ChatMessageRow; Insert: ChatMessageInsert; Update: Partial<ChatMessageInsert>; Relationships: [] };
       user_documents: { Row: UserDocumentRow; Insert: UserDocumentInsert; Update: Partial<UserDocumentInsert>; Relationships: [] };
       user_document_chunks: { Row: UserDocumentChunkRow; Insert: UserDocumentChunkInsert; Update: Partial<UserDocumentChunkInsert>; Relationships: [] };
+      portfolio_profiles: { Row: PortfolioProfileRow; Insert: PortfolioProfileInsert; Update: Partial<PortfolioProfileInsert>; Relationships: [] };
     };
     Views: {
       latest_scores: { Row: ScoreRow; Relationships: [] };

@@ -68,6 +68,7 @@ export function WhatIfSimulator({ holdings }: WhatIfSimulatorProps) {
         beta: extra.beta,
         piotroskiScore: null,
         altmanZone: null,
+        capCategory: null,
       },
     ];
     return summarise(simulated);

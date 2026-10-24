@@ -10,6 +10,8 @@ export interface HoldingWithData {
   /** Financial-quality context for the risk report (may be unavailable). */
   piotroskiScore: number | null;
   altmanZone: string | null;
+  /** Cap category, used for small-cap weight in goal-conflict checks. */
+  capCategory: "large" | "mid" | "small" | null;
 }
 
 /** A position's computed value + weight. */
