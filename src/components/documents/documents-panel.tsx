@@ -30,8 +30,12 @@ export function DocumentsPanel() {
     try {
       const res = await fetch("/api/documents");
       if (res.ok) {
-        const data = (await res.json()) as { documents: DocItem[] };
+        const data = (await res.json()) as {
+          documents: DocItem[];
+          notice?: string;
+        };
         setDocs(data.documents ?? []);
+        if (data.notice) setError(data.notice);
       }
     } finally {
       setLoading(false);

@@ -32,7 +32,14 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: "Failed to load." }, { status: 500 });
+  if (error) {
+    // Missing table (0008 not applied) → empty list + a readable notice, not 500.
+    return NextResponse.json({
+      documents: [],
+      notice:
+        "Document storage isn't set up yet (migration 0008 not applied).",
+    });
+  }
   return NextResponse.json({ documents: data ?? [] });
 }
 
@@ -115,7 +122,19 @@ export async function POST(request: Request) {
     .select("id")
     .single();
   if (insErr || !doc) {
-    return NextResponse.json({ error: "Could not create document." }, { status: 500 });
+    // A missing table means migration 0008 hasn't been applied yet. Give a
+    // readable 503 instead of an opaque 500.
+    const missingTable = /relation .* does not exist|schema cache|user_documents/i.test(
+      insErr?.message ?? "",
+    );
+    return NextResponse.json(
+      {
+        error: missingTable
+          ? "Document storage isn't set up yet. An administrator needs to apply migration 0008."
+          : "Could not create document.",
+      },
+      { status: missingTable ? 503 : 500 },
+    );
   }
 
   const storagePath = `${user.id}/${doc.id}.pdf`;

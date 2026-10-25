@@ -10,13 +10,15 @@ import { Disclaimer } from "@/components/disclaimer";
 import { DataFreshness } from "@/components/data-freshness";
 import { ScoreBadge } from "@/components/score-badge";
 import { BrokerDropdown } from "@/components/broker-dropdown";
-import { PriceChart } from "@/components/price-chart";
+import {
+  PriceChart,
+  FinancialsChart,
+  ShareholdingChart,
+} from "@/components/charts/lazy";
 import { KeyStats } from "@/components/key-stats";
 import { FinancialQuality } from "@/components/financial-quality";
 import { ScoreBreakdown } from "@/components/score-breakdown";
 import { RedFlagsBox } from "@/components/red-flags-box";
-import { FinancialsChart } from "@/components/financials-chart";
-import { ShareholdingChart } from "@/components/shareholding-chart";
 import { PeerTable } from "@/components/peer-table";
 import { ChatSlot } from "@/components/chat/chat-slot";
 

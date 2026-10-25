@@ -33,6 +33,12 @@ export interface RiskReportModel {
   volatility: number | null; // annualised fraction
   /** The user's stress scenario + results, if they ran one. */
   stress: StressResult | null;
+  /** Average pairwise correlation of holdings (historical), or null. */
+  averageCorrelation?: number | null;
+  /** Each holding's contribution to portfolio volatility (fraction). */
+  volContributions?: { symbol: string; contribution: number }[];
+  /** Goal-conflict warnings from the investor profile, if set. */
+  goalConflicts?: { message: string; rule: string; numbers: string }[];
 }
 
 export const RISK_REPORT_DISCLAIMER =
@@ -186,7 +192,36 @@ export async function generateRiskReportPdf(
   line(
     "Beta and volatility are computed from historical daily returns. They describe the past, not the future.",
   );
+  if (model.averageCorrelation != null) {
+    line(
+      `Average pairwise correlation of holdings: ${model.averageCorrelation.toFixed(2)} (near +1 = move together; near 0 = independent).`,
+    );
+  }
+  if (model.volContributions && model.volContributions.length > 0) {
+    line("Contribution to portfolio volatility:");
+    for (const c of [...model.volContributions].sort(
+      (a, b) => b.contribution - a.contribution,
+    )) {
+      ensureSpace(5);
+      doc.text(
+        `  ${c.symbol}: ${(c.contribution * 100).toFixed(1)}%`,
+        margin,
+        y,
+      );
+      y += 5;
+    }
+  }
   y += 3;
+
+  // Goal-conflict checks (observations about the stated profile — neutral)
+  if (model.goalConflicts && model.goalConflicts.length > 0) {
+    heading("Goal-conflict checks");
+    for (const g of model.goalConflicts) {
+      line(`- ${g.message}`);
+      line(`  (${g.rule} · ${g.numbers})`);
+    }
+    y += 3;
+  }
 
   // Hypothetical scenarios
   heading("Hypothetical scenarios");

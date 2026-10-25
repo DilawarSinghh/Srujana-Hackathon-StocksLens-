@@ -26,6 +26,7 @@ function h(
     beta,
     piotroskiScore: null,
     altmanZone: null,
+    capCategory: null,
   };
 }
 
