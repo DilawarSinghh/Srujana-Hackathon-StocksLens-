@@ -26,6 +26,7 @@ import {
   ensureDisclaimer,
   DISCLAIMER_LINE,
 } from "@/lib/rag/guardrails";
+import { postProcess } from "@/lib/llm/post-process";
 import { isRateLimited } from "@/lib/rag/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -118,11 +119,18 @@ export async function POST() {
       ],
     });
 
+    // POST-PROCESS (open-model safety): strip any <think> blocks and stray
+    // citation tags (this route provides no sources), ensure the disclaimer.
+    const cleaned = postProcess(text, {
+      validTags: [],
+      disclaimer: DISCLAIMER_LINE,
+    }).text;
+
     // OUTPUT GUARD: if the explanation drifts into advice, replace it; always
     // ensure the disclaimer line is present.
-    const explanation = containsAdvice(text)
+    const explanation = containsAdvice(cleaned)
       ? ADVICE_FALLBACK
-      : ensureDisclaimer(text);
+      : ensureDisclaimer(cleaned);
 
     return NextResponse.json({ data, explanation });
   } catch (e) {

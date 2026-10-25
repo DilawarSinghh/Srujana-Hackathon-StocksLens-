@@ -14,7 +14,11 @@ import {
   isAdviceSeeking,
   buildRefusal,
   sanitizeOutput,
+  DISCLAIMER_LINE,
 } from "@/lib/rag/guardrails";
+import { postProcess } from "@/lib/llm/post-process";
+import { trimHistory } from "@/lib/llm/budget";
+import { getServerEnv } from "@/lib/env";
 import { isRateLimited } from "@/lib/rag/rate-limit";
 import type { ChatSource, TablesInsert } from "@/types/database";
 
@@ -175,7 +179,15 @@ export async function POST(request: Request) {
   // 7. Build the prompt.
   const sourcesText = renderSources(chunks);
   const dataText = dataBlock ? renderDataBlock(dataBlock) : "DATA: (none)";
-  const history = (body.history ?? []).slice(-6);
+  // Trim history to a modest token budget (keep the most recent turns) so
+  // free-tier tokens-per-minute limits are respected.
+  const { RAG_MAX_CONTEXT_TOKENS } = getServerEnv();
+  const history = trimHistory(
+    (body.history ?? []).slice(-6),
+    Math.floor(RAG_MAX_CONTEXT_TOKENS / 3),
+  );
+  // Valid citation tags for the post-processor (S1..Sn for the chunks given).
+  const validTags = chunks.map((_, i) => `S${i + 1}`);
 
   try {
     // Generate through the Gemini model-fallback chain (429/5xx/timeout → next).
@@ -188,9 +200,17 @@ export async function POST(request: Request) {
           content: `${sourcesText}\n\n${dataText}\n\nQUESTION: ${body.message}`,
         },
       ],
-      // OUTPUT GUARD + fact audit + persistence happen on finish.
+      // POST-PROCESS (open-model safety) + OUTPUT GUARD + fact audit +
+      // persistence happen on finish.
       async onFinish({ text }) {
-        const { text: safe } = sanitizeOutput(text, refusal);
+        // 1) Deterministic post-processing: strip <think> blocks, drop citation
+        //    tags to sources that were not provided, ensure the disclaimer.
+        const processed = postProcess(text, {
+          validTags,
+          disclaimer: DISCLAIMER_LINE,
+        }).text;
+        // 2) Advice output guard (replaces with the refusal if it slipped).
+        const { text: safe } = sanitizeOutput(processed, refusal);
         const sources = citedSources(chunks, safe);
         // Fact audit: non-blocking for the stream, best-effort. Never rewrites.
         const audit = await auditAnswer(safe, chunks, dataBlock);
