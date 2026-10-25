@@ -23,6 +23,7 @@ export type RelatedPartyTrend =
   | "sharply_rising"
   | "unknown";
 export type ChatRole = "user" | "assistant";
+export type ChatMode = "filings" | "web" | "portfolio";
 export type AltmanZone = "safe" | "grey" | "distress" | "not_applicable";
 export type DividendSafety = "strong" | "moderate" | "weak" | "not_available";
 export type UserDocumentStatus =
@@ -406,6 +407,7 @@ type ChatMessageRow = {
   content: string;
   sources: ChatSource[] | null;
   audit: AuditResult | null;
+  mode: ChatMode;
   created_at: string;
 }
 type ChatMessageInsert = {
@@ -416,7 +418,21 @@ type ChatMessageInsert = {
   content: string;
   sources?: ChatSource[] | null;
   audit?: AuditResult | null;
+  mode?: ChatMode;
   created_at?: string;
+}
+
+type WebCacheRow = {
+  key: string;
+  content: string;
+  fetched_at: string;
+  expires_at: string;
+}
+type WebCacheInsert = {
+  key: string;
+  content: string;
+  fetched_at?: string;
+  expires_at: string;
 }
 
 type UserDocumentRow = {
@@ -500,6 +516,7 @@ export interface Database {
       user_documents: { Row: UserDocumentRow; Insert: UserDocumentInsert; Update: Partial<UserDocumentInsert>; Relationships: [] };
       user_document_chunks: { Row: UserDocumentChunkRow; Insert: UserDocumentChunkInsert; Update: Partial<UserDocumentChunkInsert>; Relationships: [] };
       portfolio_profiles: { Row: PortfolioProfileRow; Insert: PortfolioProfileInsert; Update: Partial<PortfolioProfileInsert>; Relationships: [] };
+      web_cache: { Row: WebCacheRow; Insert: WebCacheInsert; Update: Partial<WebCacheInsert>; Relationships: [] };
     };
     Views: {
       latest_scores: { Row: ScoreRow; Relationships: [] };
