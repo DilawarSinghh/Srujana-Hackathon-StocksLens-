@@ -1,16 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ResolvedModel } from "@/lib/llm/providers";
 
-// Mock env to provide a deterministic model chain.
-vi.mock("@/lib/env", () => ({
-  getServerEnv: () => ({
-    GEMINI_CHAT_MODEL: "final-model",
-    GEMINI_CHAT_MODELS: "primary-model, backup-model",
-  }),
-}));
-
-// Mock the Google provider factory to a passthrough tagging the model name.
-vi.mock("@ai-sdk/google", () => ({
-  google: (name: string) => ({ __model: name }),
+/**
+ * The chain is resolved by src/lib/llm/providers.ts. Here we mock that module
+ * so these tests focus purely on the fallback/cascade behaviour of
+ * model-chain.ts (ordering, transient vs non-transient, Retry-After, probe).
+ */
+const resolveChatChain = vi.fn();
+vi.mock("@/lib/llm/providers", () => ({
+  resolveChatChain: (): ResolvedModel[] => resolveChatChain(),
 }));
 
 // Mock the AI SDK; generateText/streamText behaviour is configured per test.
@@ -22,26 +20,29 @@ vi.mock("ai", () => ({
 }));
 
 import {
-  resolveChatModels,
   isTransientError,
+  retryAfterMs,
   streamWithFallback,
   generateWithFallback,
   AllModelsFailedError,
 } from "./model-chain";
 
+/** Build a fake resolved chain of N labelled models. */
+function fakeChain(labels: string[]): ResolvedModel[] {
+  return labels.map((label) => ({
+    label,
+    provider: "groq",
+    model: { __model: label } as unknown as ResolvedModel["model"],
+  }));
+}
+
 beforeEach(() => {
   generateText.mockReset();
   streamText.mockReset();
-});
-
-describe("resolveChatModels", () => {
-  it("orders the list and appends the single model as final fallback", () => {
-    expect(resolveChatModels()).toEqual([
-      "primary-model",
-      "backup-model",
-      "final-model",
-    ]);
-  });
+  resolveChatChain.mockReset();
+  resolveChatChain.mockReturnValue(
+    fakeChain(["groq:primary", "huggingface:backup", "google:final"]),
+  );
 });
 
 describe("isTransientError", () => {
@@ -53,33 +54,58 @@ describe("isTransientError", () => {
     expect(isTransientError({ name: "AbortError" })).toBe(true);
     expect(isTransientError(new Error("request timed out"))).toBe(true);
   });
+  it("treats tokens-per-minute / rate-limit messages as transient", () => {
+    expect(isTransientError(new Error("Rate limit reached for tokens per minute"))).toBe(true);
+    expect(isTransientError(new Error("TPM quota exceeded"))).toBe(true);
+    expect(isTransientError(new Error("too many requests"))).toBe(true);
+  });
   it("treats a 400 as non-transient", () => {
     expect(isTransientError({ statusCode: 400 })).toBe(false);
   });
 });
 
+describe("retryAfterMs", () => {
+  it("parses numeric seconds from responseHeaders", () => {
+    expect(retryAfterMs({ responseHeaders: { "retry-after": "2" } })).toBe(2000);
+  });
+  it("returns null when absent", () => {
+    expect(retryAfterMs({})).toBeNull();
+  });
+});
+
 describe("streamWithFallback", () => {
-  it("uses the first model whose probe succeeds", async () => {
-    generateText.mockResolvedValueOnce({ text: "ok" }); // primary probe passes
+  it("uses the first entry whose probe succeeds", async () => {
+    generateText.mockResolvedValueOnce({ text: "ok" });
     streamText.mockReturnValueOnce({ __stream: "primary" });
 
     const res = await streamWithFallback({ messages: [] });
     expect(res).toEqual({ __stream: "primary" });
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(streamText).toHaveBeenCalledTimes(1);
-    expect(streamText.mock.calls[0][0].model).toEqual({ __model: "primary-model" });
+    expect(streamText.mock.calls[0][0].model).toEqual({ __model: "groq:primary" });
   });
 
-  it("falls through on a transient probe failure to the next model", async () => {
+  it("falls through on a transient probe failure to the next provider", async () => {
     generateText
-      .mockRejectedValueOnce({ statusCode: 429 }) // primary fails
-      .mockResolvedValueOnce({ text: "ok" }); // backup passes
+      .mockRejectedValueOnce({ statusCode: 429 }) // groq fails
+      .mockResolvedValueOnce({ text: "ok" }); // huggingface passes
     streamText.mockReturnValueOnce({ __stream: "backup" });
 
     const res = await streamWithFallback({ messages: [] });
     expect(res).toEqual({ __stream: "backup" });
     expect(generateText).toHaveBeenCalledTimes(2);
-    expect(streamText.mock.calls[0][0].model).toEqual({ __model: "backup-model" });
+    expect(streamText.mock.calls[0][0].model).toEqual({ __model: "huggingface:backup" });
+  });
+
+  it("moves to the next provider on a tokens-per-minute rate-limit message", async () => {
+    generateText
+      .mockRejectedValueOnce(new Error("Rate limit reached: tokens per minute"))
+      .mockResolvedValueOnce({ text: "ok" });
+    streamText.mockReturnValueOnce({ __stream: "backup" });
+
+    const res = await streamWithFallback({ messages: [] });
+    expect(res).toEqual({ __stream: "backup" });
+    expect(generateText).toHaveBeenCalledTimes(2);
   });
 
   it("throws immediately on a non-transient failure", async () => {
@@ -90,12 +116,20 @@ describe("streamWithFallback", () => {
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
-  it("throws AllModelsFailedError when every model is transiently down", async () => {
+  it("throws AllModelsFailedError when every entry is transiently down", async () => {
     generateText.mockRejectedValue({ statusCode: 429 });
     await expect(streamWithFallback({ messages: [] })).rejects.toBeInstanceOf(
       AllModelsFailedError,
     );
-    expect(generateText).toHaveBeenCalledTimes(3); // all three models tried
+    expect(generateText).toHaveBeenCalledTimes(3); // all three entries tried
+  });
+
+  it("throws AllModelsFailedError when no provider is configured", async () => {
+    resolveChatChain.mockReturnValue([]);
+    await expect(streamWithFallback({ messages: [] })).rejects.toBeInstanceOf(
+      AllModelsFailedError,
+    );
+    expect(generateText).not.toHaveBeenCalled();
   });
 });
 
@@ -107,5 +141,16 @@ describe("generateWithFallback", () => {
     const res = await generateWithFallback({ prompt: "x" });
     expect(res).toEqual({ text: "audit json" });
     expect(generateText).toHaveBeenCalledTimes(2);
+  });
+
+  it("tries a preferred model first", async () => {
+    generateText.mockResolvedValueOnce({ text: "audit json" });
+    const preferred: ResolvedModel = {
+      label: "google:audit",
+      provider: "google",
+      model: { __model: "google:audit" } as unknown as ResolvedModel["model"],
+    };
+    await generateWithFallback({ prompt: "x" }, preferred);
+    expect(generateText.mock.calls[0][0].model).toEqual({ __model: "google:audit" });
   });
 });

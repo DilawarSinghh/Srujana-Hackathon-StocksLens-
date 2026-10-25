@@ -1,32 +1,37 @@
 import "server-only";
 import { streamText, generateText } from "ai";
-import { google } from "@ai-sdk/google";
-import { getServerEnv } from "@/lib/env";
+import {
+  resolveChatChain,
+  type ResolvedModel,
+} from "@/lib/llm/providers";
 
 /**
- * Gemini model fallback chain.
+ * Provider-agnostic chat model fallback chain.
  *
- * Reads GEMINI_CHAT_MODELS (comma-separated, ordered) and always appends
- * GEMINI_CHAT_MODEL as the final fallback. Transient failures (HTTP 429, 5xx,
- * or timeouts/aborts) advance to the next model; a non-transient failure on the
- * last model is surfaced to the caller.
+ * The chain is resolved from env (see src/lib/llm/providers.ts): either the
+ * multi-provider LLM_CHAT_CHAIN ("groq:...,huggingface:...,google:...") or, for
+ * backward compatibility, the legacy Gemini-only chain (GEMINI_CHAT_MODELS +
+ * GEMINI_CHAT_MODEL). Providers whose API key is missing are skipped silently.
+ *
+ * Transient failures (HTTP 429, 5xx, timeouts/aborts, and provider
+ * rate-limit / tokens-per-minute messages) advance to the next entry, honoring
+ * Retry-After when present. A non-transient failure on an entry is surfaced
+ * immediately. If every entry fails transiently (or none is configured) the
+ * caller receives AllModelsFailedError and shows the existing friendly error.
  *
  * Adapted from Nipun-AI (MIT License) — the cascading-model idea. See NOTICE.md.
  * Reimplemented on the Vercel AI SDK (no raw fetch, no hard-coded model names).
  */
 
-/** Resolve the ordered, de-duplicated list of chat model names from env. */
+/**
+ * Legacy helper retained for backward compatibility and existing tests: the
+ * ordered list of model NAMES in the resolved chain.
+ */
 export function resolveChatModels(): string[] {
-  const { GEMINI_CHAT_MODEL, GEMINI_CHAT_MODELS } = getServerEnv();
-  const list = (GEMINI_CHAT_MODELS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  list.push(GEMINI_CHAT_MODEL); // always the final fallback
-  return [...new Set(list)];
+  return resolveChatChain().map((m) => m.model as unknown as string);
 }
 
-/** True when an error is transient and worth trying the next model for. */
+/** True when an error is transient and worth trying the next entry for. */
 export function isTransientError(err: unknown): boolean {
   const e = err as { statusCode?: number; name?: string; message?: string };
   if (e?.statusCode === 429) return true;
@@ -35,8 +40,32 @@ export function isTransientError(err: unknown): boolean {
   if (e?.name === "AbortError" || e?.name === "TimeoutError") return true;
   return /\b(429|timeout|timed out|unavailable|overloaded|503|502|500)\b/.test(
     msg,
-  );
+  ) || /rate.?limit|tokens per minute|tokens-per-minute|tpm|too many requests|quota/.test(msg);
 }
+
+/** Parse a Retry-After value (seconds or HTTP date) from a provider error. */
+export function retryAfterMs(err: unknown): number | null {
+  const e = err as {
+    responseHeaders?: Record<string, string>;
+    headers?: Record<string, string>;
+    retryAfter?: number | string;
+  };
+  const headers = e?.responseHeaders ?? e?.headers ?? {};
+  const raw =
+    headers["retry-after"] ??
+    headers["Retry-After"] ??
+    (e?.retryAfter as string | number | undefined);
+  if (raw == null) return null;
+  if (typeof raw === "number") return raw * 1000;
+  const asNum = Number(raw);
+  if (Number.isFinite(asNum)) return asNum * 1000;
+  const asDate = Date.parse(raw);
+  if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now());
+  return null;
+}
+
+/** Cap on how long we'll actually wait for a Retry-After before moving on. */
+const MAX_RETRY_WAIT_MS = 4000;
 
 export class AllModelsFailedError extends Error {
   constructor(
@@ -48,64 +77,92 @@ export class AllModelsFailedError extends Error {
   }
 }
 
+/** Server-only log of which provider/model answered. Never shown to users. */
+function logAnswered(label: string): void {
+  console.info(`[model-chain] answered by ${label}`);
+}
+
+async function maybeWaitForRetryAfter(err: unknown): Promise<void> {
+  const wait = retryAfterMs(err);
+  if (wait != null && wait > 0) {
+    await new Promise((r) => setTimeout(r, Math.min(wait, MAX_RETRY_WAIT_MS)));
+  }
+}
+
 type StreamTextOptions = Omit<Parameters<typeof streamText>[0], "model">;
 
 /**
- * Stream a completion, cascading through the resolved model chain.
+ * Stream a completion, cascading through the resolved provider chain.
  *
- * `streamText` is lazy, so a call can succeed here and still fail while the body
- * streams. To make fallback reliable we probe each model with a tiny
+ * `streamText` is lazy, so a call can succeed here and still fail while the
+ * body streams. To make fallback reliable we probe each model with a tiny
  * `generateText` call first; the first model that answers the probe is used for
- * the real stream. On transient probe failures we advance to the next model.
+ * the real stream. On transient probe failures we advance to the next entry
+ * (honoring Retry-After).
  */
 // Adapted from Nipun-AI (MIT License). See NOTICE.md.
 export async function streamWithFallback(
   options: StreamTextOptions,
 ): Promise<ReturnType<typeof streamText>> {
-  const models = resolveChatModels();
+  const chain = resolveChatChain();
   let lastErr: unknown;
 
-  for (const modelName of models) {
+  for (const entry of chain) {
     try {
       // Cheap liveness probe (bounded tokens) to detect 429/5xx before streaming.
-      await generateText({
-        model: google(modelName),
-        prompt: "ping",
-        maxTokens: 1,
-      });
-      return streamText({ model: google(modelName), ...options });
+      await generateText({ model: entry.model, prompt: "ping", maxTokens: 1 });
+      logAnswered(entry.label);
+      return streamText({ model: entry.model, ...options });
     } catch (err) {
       lastErr = err;
-      if (isTransientError(err)) continue; // try next model
-      // Non-transient (e.g. bad request): no point trying other models.
-      throw err;
+      if (isTransientError(err)) {
+        await maybeWaitForRetryAfter(err);
+        continue; // try next entry
+      }
+      throw err; // non-transient (e.g. bad request): stop.
     }
   }
 
-  const statusCode = (lastErr as { statusCode?: number })?.statusCode;
-  throw new AllModelsFailedError(lastErr, statusCode);
+  throw new AllModelsFailedError(
+    lastErr,
+    (lastErr as { statusCode?: number })?.statusCode,
+  );
 }
 
 /**
  * Non-streaming generation with the same fallback cascade. Used by the fact
- * audit (a single cheap verification call).
+ * audit and the portfolio-explain route.
+ *
+ * An optional `preferred` model (e.g. the resolved audit model) is tried first,
+ * then the rest of the chain.
  */
 export async function generateWithFallback(
   options: Omit<Parameters<typeof generateText>[0], "model">,
+  preferred?: ResolvedModel | null,
 ): Promise<ReturnType<typeof generateText>> {
-  const models = resolveChatModels();
+  const chain = resolveChatChain();
+  const ordered: ResolvedModel[] = preferred
+    ? [preferred, ...chain.filter((m) => m.label !== preferred.label)]
+    : chain;
   let lastErr: unknown;
 
-  for (const modelName of models) {
+  for (const entry of ordered) {
     try {
-      return await generateText({ model: google(modelName), ...options });
+      const result = await generateText({ model: entry.model, ...options });
+      logAnswered(entry.label);
+      return result;
     } catch (err) {
       lastErr = err;
-      if (isTransientError(err)) continue;
+      if (isTransientError(err)) {
+        await maybeWaitForRetryAfter(err);
+        continue;
+      }
       throw err;
     }
   }
 
-  const statusCode = (lastErr as { statusCode?: number })?.statusCode;
-  throw new AllModelsFailedError(lastErr, statusCode);
+  throw new AllModelsFailedError(
+    lastErr,
+    (lastErr as { statusCode?: number })?.statusCode,
+  );
 }
