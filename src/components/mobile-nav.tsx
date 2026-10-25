@@ -39,10 +39,7 @@ export function MobileNav() {
         </SheetHeader>
         <nav className="mt-6 flex flex-col gap-1" aria-label="Mobile">
           {siteConfig.nav.map((item) => {
-            const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
+            const active = pathname.startsWith(item.href);
             return (
               <SheetClose asChild key={item.href}>
                 <Link

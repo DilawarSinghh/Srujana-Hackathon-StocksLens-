@@ -12,8 +12,7 @@ export function MainNav() {
   return (
     <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary">
       {siteConfig.nav.map((item) => {
-        const active =
-          item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+        const active = pathname.startsWith(item.href);
         return (
           <Link
             key={item.href}
