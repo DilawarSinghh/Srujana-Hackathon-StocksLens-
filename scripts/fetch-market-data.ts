@@ -41,6 +41,25 @@ const HISTORY_YEARS = 5;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Build an actionable stop message for a provider rate-limit abort. */
+function rateLimitMessage(e: ProviderRateLimitError): string {
+  const sec = e.retryAfterSec;
+  let when = "after the daily quota window resets";
+  if (sec != null && sec > 0) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const human = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`;
+    const at = new Date(Date.now() + sec * 1000).toISOString();
+    when = `in ~${human} (around ${at})`;
+  }
+  return (
+    `\n✗ Stopping: the market-data provider is rate-limited (HTTP 429). ` +
+    `No data was overwritten; successful writes are preserved and the rerun is ` +
+    `idempotent. Re-run \`pnpm fetch\` ${when}, raise TAPETIDE_MAX_RETRY_MS to ` +
+    `wait inline (not recommended for long resets), or use a higher-tier plan.`
+  );
+}
+
 /**
  * Map a provider AnnualFundamental to a DB row. Monetary fields are ALREADY in
  * INR crore per the MarketDataProvider contract (the provider adapter does any
@@ -213,6 +232,7 @@ async function main() {
   try {
     // Prefer the provider's native benchmark (Tapetide: nifty-50 index levels);
     // fall back to the Yahoo-symbol history path for providers without one.
+    // Fetched ONCE here and reused for every stock's beta below.
     const benchBars = provider.getBenchmarkHistory
       ? await provider.getBenchmarkHistory(since)
       : await provider.getHistory(BENCHMARK_YAHOO_SYMBOL, since);
@@ -221,6 +241,13 @@ async function main() {
     );
     console.log(`✓ Benchmark (Nifty 50): ${benchBars.length} bars\n`);
   } catch (e) {
+    // A rate-limit on the very first (benchmark) call means the quota is spent:
+    // stop now instead of proceeding to 429 on every stock.
+    if (e instanceof ProviderRateLimitError) {
+      console.error(rateLimitMessage(e));
+      process.exit(1);
+    }
+    // Other benchmark failures (e.g. a 404 index symbol) degrade to null beta.
     console.warn(`! Benchmark fetch failed — beta will be null. ${e}\n`);
   }
 
@@ -368,11 +395,7 @@ async function main() {
       // the remaining symbols (which only worsens throttling). Existing valid
       // data is untouched because the failed stock was never upserted.
       if (e instanceof ProviderRateLimitError) {
-        console.error(
-          `\n✗ Stopping: the market-data provider is rate-limiting (HTTP 429). ` +
-            `No data was overwritten. Re-run \`pnpm fetch\` after the quota ` +
-            `window resets, or with a higher-tier plan.`,
-        );
+        console.error(rateLimitMessage(e));
         break;
       }
     }

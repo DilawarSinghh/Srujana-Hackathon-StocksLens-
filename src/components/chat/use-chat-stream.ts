@@ -22,7 +22,9 @@ interface SendResult {
  * Parses the Vercel AI data-stream text parts (lines like `0:"token"`).
  * Loads/clears history via /api/chat/history.
  */
-export function useChatStream(symbol: string) {
+export type ChatMode = "analysis" | "filings";
+
+export function useChatStream(symbol: string, mode: ChatMode = "analysis") {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = React.useState(false);
   const [error, setError] = React.useState<ErrorKind>(null);
@@ -33,7 +35,7 @@ export function useChatStream(symbol: string) {
     setLoadingHistory(true);
     try {
       const res = await fetch(
-        `/api/chat/history?symbol=${encodeURIComponent(symbol)}`,
+        `/api/chat/history?symbol=${encodeURIComponent(symbol)}&mode=${mode}`,
       );
       if (res.ok) {
         const data = (await res.json()) as { messages: ChatMessage[] };
@@ -44,19 +46,20 @@ export function useChatStream(symbol: string) {
     } finally {
       setLoadingHistory(false);
     }
-  }, [symbol]);
+  }, [symbol, mode]);
 
   React.useEffect(() => {
     loadHistory();
   }, [loadHistory]);
 
   const clear = React.useCallback(async () => {
-    await fetch(`/api/chat/history?symbol=${encodeURIComponent(symbol)}`, {
-      method: "DELETE",
-    });
+    await fetch(
+      `/api/chat/history?symbol=${encodeURIComponent(symbol)}&mode=${mode}`,
+      { method: "DELETE" },
+    );
     setMessages([]);
     setError(null);
-  }, [symbol]);
+  }, [symbol, mode]);
 
   const send = React.useCallback(
     async (message: string): Promise<SendResult> => {
@@ -87,7 +90,7 @@ export function useChatStream(symbol: string) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbol, message, history }),
+          body: JSON.stringify({ symbol, message, mode, history }),
         });
 
         if (!res.ok) {
@@ -119,7 +122,7 @@ export function useChatStream(symbol: string) {
         setStreaming(false);
       }
     },
-    [streaming, messages, symbol, loadHistory],
+    [streaming, messages, symbol, mode, loadHistory],
   );
 
   const retry = React.useCallback(() => {

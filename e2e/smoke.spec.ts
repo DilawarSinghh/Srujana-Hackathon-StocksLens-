@@ -38,3 +38,104 @@ test("a stock page shows a score (or a clean fallback)", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByText(/Not investment advice/i).first()).toBeVisible();
 });
+
+test("a populated stock (RELIANCE) renders a real price and score", async ({
+  page,
+}) => {
+  const res = await page.goto("/stocks/RELIANCE");
+  const status = res?.status() ?? 0;
+  // Only assert real-data rendering when the stock exists and is served.
+  test.skip(status === 404, "RELIANCE not seeded in this environment");
+
+  // Company name heading.
+  await expect(page.getByRole("heading", { name: /Reliance/i })).toBeVisible();
+  // A real rupee price is shown (₹ followed by digits).
+  await expect(page.getByText(/₹\s?[\d,]+/).first()).toBeVisible();
+  // The fundamental-score section renders.
+  await expect(page.getByText(/Fundamental score/i).first()).toBeVisible();
+});
+
+test("search surfaces an imported stock via the search API", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const resp = await page.request.get("/api/search?q=infosys");
+  expect(resp.ok()).toBeTruthy();
+  const body = (await resp.json()) as { results: { symbol: string }[] };
+  expect(body.results.some((r) => r.symbol === "INFY")).toBeTruthy();
+});
+
+test("stock page shows the chat panel (signed-out prompt, no filings error)", async ({
+  page,
+}) => {
+  const res = await page.goto("/stocks/RELIANCE");
+  const status = res?.status() ?? 0;
+  test.skip(status === 404, "RELIANCE not seeded in this environment");
+
+  // The chat card is present on the detail page (desktop column or mobile).
+  await expect(page.getByText(/Ask about/i).first()).toBeVisible();
+  // Signed-out users are invited to sign in — they must NOT see a raw
+  // "no filings / run the ingestion script" error in place of the chat.
+  await expect(page.getByText(/Sign in with Google to chat/i).first()).toBeVisible();
+  await expect(page.getByText(/run the ingestion script/i)).toHaveCount(0);
+});
+
+// --- Community (public feed + signed-out composer prompt) -----------------
+test("community feed loads with the composer sign-in prompt when logged out", async ({
+  page,
+}) => {
+  await page.goto("/community");
+  await expect(page.getByRole("heading", { name: /^Community$/ })).toBeVisible();
+  // The standing user-generated-content notice is present.
+  await expect(page.getByText(/user-generated opinions/i).first()).toBeVisible();
+  // Signed-out users see a prompt to sign in, not the composer.
+  await expect(
+    page.getByText(/Sign in with Google/i).first(),
+  ).toBeVisible();
+  // Feed tabs are present.
+  await expect(page.getByRole("tab", { name: /For You/i })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Latest/i })).toBeVisible();
+});
+
+test("community nav item links to the feed", async ({ page }) => {
+  await page.goto("/");
+  // Community appears in the primary nav (desktop) or mobile drawer; the link
+  // target is what matters.
+  const link = page.getByRole("link", { name: /^Community$/ }).first();
+  await expect(link).toHaveAttribute("href", "/community");
+});
+
+test("community guidelines page renders", async ({ page }) => {
+  await page.goto("/community/guidelines");
+  await expect(page.getByRole("heading", { name: /Community guidelines/i })).toBeVisible();
+  await expect(page.getByText(/official StockLens rating/i).first()).toBeVisible();
+});
+
+// Private community sub-routes require auth (enforced in-page via redirect).
+for (const path of ["/community/bookmarks", "/community/notifications", "/community/portfolio/new"]) {
+  test(`community route ${path} redirects signed-out users to /login`, async ({
+    page,
+  }) => {
+    await page.goto(path);
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain("/login");
+    expect(decodeURIComponent(page.url())).toContain(path);
+  });
+}
+
+// --- Authorization guard (no credentials needed) --------------------------
+// These verify server-side route protection: a signed-out user is redirected
+// to /login for every private route. This exercises middleware auth in a real
+// browser. Full authenticated-workflow coverage (dashboard/portfolio/Risk Lab/
+// PDF) requires a test account and is tracked separately as blocked on OAuth.
+for (const path of ["/dashboard", "/portfolio", "/documents"]) {
+  test(`protected route ${path} redirects signed-out users to /login`, async ({
+    page,
+  }) => {
+    await page.goto(path);
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain("/login");
+    // The return-to path is preserved for post-login redirect.
+    expect(decodeURIComponent(page.url())).toContain(path);
+  });
+}

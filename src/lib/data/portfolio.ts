@@ -35,6 +35,19 @@ export async function ensureDefaultPortfolio(
   return created.id;
 }
 
+/** List the user's portfolios (id + name) for selection. */
+export async function listPortfolios(
+  userId: string,
+): Promise<{ id: string; name: string }[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("portfolios")
+    .select("id, name")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  return data ?? [];
+}
+
 /** Load the user's portfolio holdings enriched with price + beta. */
 export async function getPortfolio(userId: string): Promise<PortfolioData | null> {
   const supabase = await createClient();

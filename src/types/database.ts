@@ -23,7 +23,7 @@ export type RelatedPartyTrend =
   | "sharply_rising"
   | "unknown";
 export type ChatRole = "user" | "assistant";
-export type ChatMode = "filings" | "web" | "portfolio";
+export type ChatMode = "analysis" | "filings" | "web" | "portfolio";
 export type AltmanZone = "safe" | "grey" | "distress" | "not_applicable";
 export type DividendSafety = "strong" | "moderate" | "weak" | "not_available";
 export type UserDocumentStatus =
@@ -495,6 +495,316 @@ type UserDocumentChunkInsert = {
 }
 
 // ===========================================================================
+// Community (migration 0013).
+// ===========================================================================
+
+export type CommunityPostType =
+  | "discussion"
+  | "thesis"
+  | "analysis"
+  | "portfolio_review"
+  | "poll";
+export type CommunityStance = "bullish" | "bearish" | "neutral";
+export type ShareVisibility = "public" | "unlisted" | "private";
+export type NotificationType =
+  | "follow"
+  | "reply"
+  | "mention"
+  | "like"
+  | "repost"
+  | "review"
+  | "poll_closed";
+export type ReportTargetType = "post" | "comment" | "profile";
+export type ReportStatus = "open" | "reviewed" | "actioned" | "dismissed";
+
+/** Point-in-time snapshot of a stock card attached to a post. Nulls preserved. */
+export interface StockCardSnapshot {
+  symbol: string;
+  name: string | null;
+  exchange: string | null;
+  sector: string | null;
+  price: number | null;
+  as_of: string | null;
+  pe: number | null;
+  pb: number | null;
+  roe: number | null;
+  operating_margin: number | null;
+  revenue_cagr_3y: number | null;
+  total_score: number | null;
+  label: string | null;
+}
+
+/** Deterministic risk metrics snapshot stored on a portfolio share. */
+export interface ShareRiskSnapshot {
+  beta: number | null;
+  betaCoveredWeight: number | null;
+  volatility: number | null;
+  hhi: number | null;
+  topSector: string | null;
+  topSectorWeight: number | null;
+  concentrationFlags: string[];
+}
+
+type CommunityPostRow = {
+  id: string;
+  author_id: string;
+  post_type: CommunityPostType;
+  body: string;
+  stance: CommunityStance | null;
+  time_horizon: string | null;
+  thesis_risks: string | null;
+  repost_of: string | null;
+  portfolio_share_id: string | null;
+  like_count: number;
+  comment_count: number;
+  repost_count: number;
+  hashtags: string[];
+  deleted_at: string | null;
+  created_at: string;
+  edited_at: string | null;
+};
+type CommunityPostInsert = {
+  id?: string;
+  author_id: string;
+  post_type?: CommunityPostType;
+  body: string;
+  stance?: CommunityStance | null;
+  time_horizon?: string | null;
+  thesis_risks?: string | null;
+  repost_of?: string | null;
+  portfolio_share_id?: string | null;
+  like_count?: number;
+  comment_count?: number;
+  repost_count?: number;
+  hashtags?: string[];
+  deleted_at?: string | null;
+  created_at?: string;
+  edited_at?: string | null;
+};
+
+type CommunityPostStockRow = {
+  post_id: string;
+  stock_id: string;
+  snapshot: StockCardSnapshot | null;
+  captured_at: string;
+};
+type CommunityPostStockInsert = {
+  post_id: string;
+  stock_id: string;
+  snapshot?: StockCardSnapshot | null;
+  captured_at?: string;
+};
+
+type CommunityCommentRow = {
+  id: string;
+  post_id: string;
+  author_id: string;
+  parent_id: string | null;
+  body: string;
+  depth: number;
+  like_count: number;
+  deleted_at: string | null;
+  created_at: string;
+  edited_at: string | null;
+};
+type CommunityCommentInsert = {
+  id?: string;
+  post_id: string;
+  author_id: string;
+  parent_id?: string | null;
+  body: string;
+  depth?: number;
+  like_count?: number;
+  deleted_at?: string | null;
+  created_at?: string;
+  edited_at?: string | null;
+};
+
+type SimpleLikeRow = { post_id: string; user_id: string; created_at: string };
+type SimpleLikeInsert = { post_id: string; user_id: string; created_at?: string };
+type CommentLikeRow = { comment_id: string; user_id: string; created_at: string };
+type CommentLikeInsert = { comment_id: string; user_id: string; created_at?: string };
+type BookmarkRow = { post_id: string; user_id: string; created_at: string };
+type BookmarkInsert = { post_id: string; user_id: string; created_at?: string };
+type FollowRow = { follower_id: string; followee_id: string; created_at: string };
+type FollowInsert = { follower_id: string; followee_id: string; created_at?: string };
+type StockFollowRow = { user_id: string; stock_id: string; created_at: string };
+type StockFollowInsert = { user_id: string; stock_id: string; created_at?: string };
+
+type PollRow = {
+  id: string;
+  post_id: string;
+  question: string;
+  closes_at: string;
+  created_at: string;
+};
+type PollInsert = {
+  id?: string;
+  post_id: string;
+  question: string;
+  closes_at: string;
+  created_at?: string;
+};
+type PollOptionRow = { id: string; poll_id: string; label: string; position: number };
+type PollOptionInsert = { id?: string; poll_id: string; label: string; position: number };
+type PollVoteRow = {
+  poll_id: string;
+  option_id: string;
+  user_id: string;
+  created_at: string;
+};
+type PollVoteInsert = {
+  poll_id: string;
+  option_id: string;
+  user_id: string;
+  created_at?: string;
+};
+
+type ShareRow = {
+  id: string;
+  owner_id: string;
+  source_portfolio_id: string | null;
+  title: string;
+  notes: string | null;
+  visibility: ShareVisibility;
+  is_hypothetical: boolean;
+  show_holdings: boolean;
+  show_quantities: boolean;
+  show_amounts: boolean;
+  show_allocations: boolean;
+  show_sectors: boolean;
+  show_risk_metrics: boolean;
+  objective: string | null;
+  horizon: string | null;
+  risk_tolerance: string | null;
+  feedback_wanted: string | null;
+  risk_snapshot: ShareRiskSnapshot | null;
+  revoked_at: string | null;
+  created_at: string;
+};
+type ShareInsert = {
+  id?: string;
+  owner_id: string;
+  source_portfolio_id?: string | null;
+  title: string;
+  notes?: string | null;
+  visibility?: ShareVisibility;
+  is_hypothetical?: boolean;
+  show_holdings?: boolean;
+  show_quantities?: boolean;
+  show_amounts?: boolean;
+  show_allocations?: boolean;
+  show_sectors?: boolean;
+  show_risk_metrics?: boolean;
+  objective?: string | null;
+  horizon?: string | null;
+  risk_tolerance?: string | null;
+  feedback_wanted?: string | null;
+  risk_snapshot?: ShareRiskSnapshot | null;
+  revoked_at?: string | null;
+  created_at?: string;
+};
+
+type ShareHoldingRow = {
+  id: string;
+  share_id: string;
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  allocation_pct: number | null;
+  quantity: number | null;
+  invested_amount: number | null;
+  position: number;
+};
+type ShareHoldingInsert = {
+  id?: string;
+  share_id: string;
+  symbol: string;
+  name?: string | null;
+  sector?: string | null;
+  allocation_pct?: number | null;
+  quantity?: number | null;
+  invested_amount?: number | null;
+  position?: number;
+};
+
+type ReviewRow = {
+  id: string;
+  share_id: string;
+  reviewer_id: string;
+  diversification_rating: number | null;
+  concentration_rating: number | null;
+  sector_balance_rating: number | null;
+  risk_alignment_rating: number | null;
+  comment: string | null;
+  deleted_at: string | null;
+  created_at: string;
+};
+type ReviewInsert = {
+  id?: string;
+  share_id: string;
+  reviewer_id: string;
+  diversification_rating?: number | null;
+  concentration_rating?: number | null;
+  sector_balance_rating?: number | null;
+  risk_alignment_rating?: number | null;
+  comment?: string | null;
+  deleted_at?: string | null;
+  created_at?: string;
+};
+
+type NotificationRow = {
+  id: string;
+  recipient_id: string;
+  actor_id: string | null;
+  type: NotificationType;
+  post_id: string | null;
+  comment_id: string | null;
+  share_id: string | null;
+  read_at: string | null;
+  created_at: string;
+};
+type NotificationInsert = {
+  id?: string;
+  recipient_id: string;
+  actor_id?: string | null;
+  type: NotificationType;
+  post_id?: string | null;
+  comment_id?: string | null;
+  share_id?: string | null;
+  read_at?: string | null;
+  created_at?: string;
+};
+
+type ReportRow = {
+  id: string;
+  reporter_id: string;
+  target_type: ReportTargetType;
+  post_id: string | null;
+  comment_id: string | null;
+  target_user_id: string | null;
+  reason: string;
+  status: ReportStatus;
+  created_at: string;
+};
+type ReportInsert = {
+  id?: string;
+  reporter_id: string;
+  target_type: ReportTargetType;
+  post_id?: string | null;
+  comment_id?: string | null;
+  target_user_id?: string | null;
+  reason: string;
+  status?: ReportStatus;
+  created_at?: string;
+};
+
+type BlockRow = { blocker_id: string; blocked_id: string; created_at: string };
+type BlockInsert = { blocker_id: string; blocked_id: string; created_at?: string };
+type ModeratorRow = { user_id: string; created_at: string };
+type ModeratorInsert = { user_id: string; created_at?: string };
+
+// ===========================================================================
 // Database schema
 // ===========================================================================
 
@@ -517,6 +827,24 @@ export interface Database {
       user_document_chunks: { Row: UserDocumentChunkRow; Insert: UserDocumentChunkInsert; Update: Partial<UserDocumentChunkInsert>; Relationships: [] };
       portfolio_profiles: { Row: PortfolioProfileRow; Insert: PortfolioProfileInsert; Update: Partial<PortfolioProfileInsert>; Relationships: [] };
       web_cache: { Row: WebCacheRow; Insert: WebCacheInsert; Update: Partial<WebCacheInsert>; Relationships: [] };
+      community_posts: { Row: CommunityPostRow; Insert: CommunityPostInsert; Update: Partial<CommunityPostInsert>; Relationships: [] };
+      community_post_stocks: { Row: CommunityPostStockRow; Insert: CommunityPostStockInsert; Update: Partial<CommunityPostStockInsert>; Relationships: [] };
+      community_comments: { Row: CommunityCommentRow; Insert: CommunityCommentInsert; Update: Partial<CommunityCommentInsert>; Relationships: [] };
+      community_post_likes: { Row: SimpleLikeRow; Insert: SimpleLikeInsert; Update: Partial<SimpleLikeInsert>; Relationships: [] };
+      community_comment_likes: { Row: CommentLikeRow; Insert: CommentLikeInsert; Update: Partial<CommentLikeInsert>; Relationships: [] };
+      community_bookmarks: { Row: BookmarkRow; Insert: BookmarkInsert; Update: Partial<BookmarkInsert>; Relationships: [] };
+      community_follows: { Row: FollowRow; Insert: FollowInsert; Update: Partial<FollowInsert>; Relationships: [] };
+      community_stock_follows: { Row: StockFollowRow; Insert: StockFollowInsert; Update: Partial<StockFollowInsert>; Relationships: [] };
+      community_polls: { Row: PollRow; Insert: PollInsert; Update: Partial<PollInsert>; Relationships: [] };
+      community_poll_options: { Row: PollOptionRow; Insert: PollOptionInsert; Update: Partial<PollOptionInsert>; Relationships: [] };
+      community_poll_votes: { Row: PollVoteRow; Insert: PollVoteInsert; Update: Partial<PollVoteInsert>; Relationships: [] };
+      community_portfolio_shares: { Row: ShareRow; Insert: ShareInsert; Update: Partial<ShareInsert>; Relationships: [] };
+      community_portfolio_share_holdings: { Row: ShareHoldingRow; Insert: ShareHoldingInsert; Update: Partial<ShareHoldingInsert>; Relationships: [] };
+      community_portfolio_reviews: { Row: ReviewRow; Insert: ReviewInsert; Update: Partial<ReviewInsert>; Relationships: [] };
+      community_notifications: { Row: NotificationRow; Insert: NotificationInsert; Update: Partial<NotificationInsert>; Relationships: [] };
+      community_reports: { Row: ReportRow; Insert: ReportInsert; Update: Partial<ReportInsert>; Relationships: [] };
+      community_blocks: { Row: BlockRow; Insert: BlockInsert; Update: Partial<BlockInsert>; Relationships: [] };
+      community_moderators: { Row: ModeratorRow; Insert: ModeratorInsert; Update: Partial<ModeratorInsert>; Relationships: [] };
     };
     Views: {
       latest_scores: { Row: ScoreRow; Relationships: [] };
@@ -551,6 +879,10 @@ export interface Database {
           content: string | null;
           similarity: number;
         }[];
+      };
+      is_community_moderator: {
+        Args: Record<string, never>;
+        Returns: boolean;
       };
     };
     Enums: Record<string, never>;

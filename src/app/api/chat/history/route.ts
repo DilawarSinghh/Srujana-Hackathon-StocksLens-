@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 
 const querySchema = z.object({
   symbol: z.string().trim().min(1).max(40),
-  // Which transcript to load/clear. Defaults to the filings chat.
-  mode: z.enum(["filings", "web"]).default("filings"),
+  // Which transcript to load/clear. Defaults to the Stock Analysis chat.
+  mode: z.enum(["analysis", "filings", "web"]).default("analysis"),
 });
 
 /**

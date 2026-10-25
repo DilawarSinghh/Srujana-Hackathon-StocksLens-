@@ -88,10 +88,21 @@ export interface MarketDataProvider {
   getBenchmarkHistory?(since: Date): Promise<DailyBar[]>;
 }
 
-/** Raised when a provider is rate-limited after exhausting retries. */
+/**
+ * Raised when a provider is rate-limited (HTTP 429) after exhausting retries,
+ * OR when the required retry delay exceeds the configured cap (so the process
+ * does not block for hours). `retryAfterSec`, when known, is how long until the
+ * quota window resets — surfaced so the caller can print an actionable message.
+ */
 export class ProviderRateLimitError extends Error {
-  constructor(provider: string, label: string) {
-    super(`${provider}: rate limited (HTTP 429) on ${label} after retries`);
+  readonly retryAfterSec: number | null;
+  constructor(provider: string, label: string, retryAfterSec: number | null = null) {
+    const suffix =
+      retryAfterSec != null && retryAfterSec > 0
+        ? ` (retry after ~${retryAfterSec}s)`
+        : "";
+    super(`${provider}: rate limited (HTTP 429) on ${label}${suffix}`);
     this.name = "ProviderRateLimitError";
+    this.retryAfterSec = retryAfterSec;
   }
 }

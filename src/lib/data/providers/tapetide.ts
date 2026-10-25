@@ -25,6 +25,17 @@ import type { DiscoverOptions, ReferenceStock } from "./types";
 const BASE = "https://api.tapetide.com/v1";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Longest a 429 `Retry-After` we will actually wait for inside a CLI run.
+ * Beyond this (e.g. a quota_exhausted reset many hours out) we abort with an
+ * actionable error instead of blocking the process. Override with
+ * TAPETIDE_MAX_RETRY_MS. Default 60s.
+ */
+function maxRetryMs(): number {
+  const v = Number(process.env.TAPETIDE_MAX_RETRY_MS);
+  return Number.isFinite(v) && v > 0 ? v : 60_000;
+}
+
 /** Tapetide uses the bare NSE symbol (e.g. "RELIANCE"), not "RELIANCE.NS". */
 export function toTapetideSymbol(symbol: string): string {
   return symbol.replace(/\.(NS|BO|BSE|NSE)$/i, "").toUpperCase();
@@ -38,14 +49,21 @@ export class TapetideProvider implements MarketDataProvider {
     if (!token) throw new Error("TapetideProvider requires an API token");
   }
 
-  /** GET an envelope route with bounded 429-aware backoff. */
+  /**
+   * GET an envelope route with bounded, 429-aware backoff.
+   *
+   * On HTTP 429/503 we honor `Retry-After` — BUT only wait when the delay is
+   * within `maxRetryMs()`. A long delay (quota_exhausted resets hours out)
+   * aborts immediately with `ProviderRateLimitError` carrying the retry-after,
+   * so an interactive CLI never blocks for hours.
+   */
   private async get(
     path: string,
     label: string,
     attempts = 4,
   ): Promise<{ data: unknown; meta: Record<string, unknown> }> {
+    const cap = maxRetryMs();
     let backoff = 2000;
-    let last429 = false;
     for (let i = 0; i < attempts; i++) {
       let res: Response;
       try {
@@ -57,25 +75,41 @@ export class TapetideProvider implements MarketDataProvider {
         });
       } catch (e) {
         if (i === attempts - 1) throw e;
-        await sleep(backoff + Math.random() * 500);
+        await sleep(Math.min(backoff + Math.random() * 500, cap));
         backoff = Math.min(backoff * 2, 20000);
         continue;
       }
 
       if (res.status === 429 || res.status === 503) {
-        last429 = true;
-        const retryAfter = Number(res.headers.get("retry-after"));
-        const waitMs =
-          Number.isFinite(retryAfter) && retryAfter > 0
-            ? retryAfter * 1000
-            : backoff + Math.random() * 500;
+        const retryAfterSec = Number(res.headers.get("retry-after"));
+        const hasRetryAfter = Number.isFinite(retryAfterSec) && retryAfterSec > 0;
+        const waitMs = hasRetryAfter
+          ? retryAfterSec * 1000
+          : backoff + Math.random() * 500;
+
+        // Required wait too long to block a CLI on (e.g. daily quota reset):
+        // abort now with an actionable error instead of sleeping for hours.
+        if (waitMs > cap) {
+          throw new ProviderRateLimitError(
+            this.name,
+            label,
+            hasRetryAfter ? Math.round(retryAfterSec) : null,
+          );
+        }
         if (i < attempts - 1) {
-          console.warn(`  ${label}: HTTP ${res.status}, waiting ${Math.round(waitMs)}ms`);
+          console.warn(
+            `  ${label}: HTTP ${res.status}, waiting ${Math.round(waitMs)}ms`,
+          );
           await sleep(waitMs);
           backoff = Math.min(backoff * 2, 20000);
           continue;
         }
-        break;
+        // Out of attempts while still throttled.
+        throw new ProviderRateLimitError(
+          this.name,
+          label,
+          hasRetryAfter ? Math.round(retryAfterSec) : null,
+        );
       }
 
       const text = await res.text();
@@ -96,7 +130,6 @@ export class TapetideProvider implements MarketDataProvider {
         throw new Error(`${label}: non-JSON response ${text.slice(0, 80)}`);
       }
     }
-    if (last429) throw new ProviderRateLimitError(this.name, label);
     throw new Error(`${label}: failed after ${attempts} attempts`);
   }
 
