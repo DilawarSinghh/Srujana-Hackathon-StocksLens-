@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { Disclaimer } from "@/components/disclaimer";
 import { DebateArena } from "@/components/debate/debate-arena";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -17,23 +19,13 @@ export default async function DebatePage() {
   if (!user) redirect("/login?next=/debate");
 
   return (
-    <div className="container flex max-w-6xl flex-col gap-6 py-10">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Devil&apos;s Advocate — AI Investment Debate
-        </h1>
-        <p className="max-w-3xl text-muted-foreground">
-          Pick an NSE/BSE stock supported by StockLens and watch three agents
-          argue the evidence: a <strong>Bull</strong> builds the strongest
-          evidence-supported case, a <strong>Devil&apos;s Advocate</strong>{" "}
-          stress-tests it, and an independent <strong>Judge</strong> weighs both
-          sides. Every point is grounded in available StockLens data and filings
-          — nothing is invented.
-        </p>
-        <Disclaimer />
-      </header>
-
+    <PageContainer>
+      <PageHeader
+        title="AI Investment Debate"
+        description="Three agents argue the evidence for a stock: a Bull builds the case, a Devil's Advocate stress-tests it, and an independent Judge weighs both sides — grounded in StockLens data and filings."
+      />
+      <Disclaimer />
       <DebateArena />
-    </div>
+    </PageContainer>
   );
 }

@@ -16,6 +16,8 @@ import { Disclaimer } from "@/components/disclaimer";
 import { DataFreshness } from "@/components/data-freshness";
 import { SearchBar } from "@/components/search-bar";
 import { SamplePortfolioButton } from "@/components/portfolio/sample-portfolio-button";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -43,18 +45,12 @@ export default async function DashboardPage() {
   const isEmpty = holdings.length === 0;
 
   return (
-    <div className="container flex flex-col gap-6 py-8">
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface/50 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Welcome back, {getDisplayName(user)}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            A quick overview of your portfolio and risk.
-          </p>
-        </div>
-        <DataFreshness lastUpdated={portfolio?.lastUpdated ?? null} />
-      </div>
+    <PageContainer>
+      <PageHeader
+        title={`Welcome back, ${getDisplayName(user)}`}
+        description="A quick overview of your portfolio and risk."
+        actions={<DataFreshness lastUpdated={portfolio?.lastUpdated ?? null} />}
+      />
 
       <Disclaimer />
 
@@ -130,21 +126,31 @@ export default async function DashboardPage() {
             </Card>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <ToolCard
-              href="/portfolio"
+              href="/portfolio#risk-lab"
               title="Risk Lab"
-              body="Concentration, correlation, scenarios, and goal-conflict checks for your holdings."
+              body="Concentration, correlation, scenarios, and goal-conflict checks."
             />
             <ToolCard
-              href="/#explore"
+              href="/"
               title="Explore stocks"
-              body="Browse fundamental scores by category and sector, then open any stock."
+              body="Browse fundamental scores by category and sector."
+            />
+            <ToolCard
+              href="/chat"
+              title="AI Chat"
+              body="Ask grounded questions about any supported company."
+            />
+            <ToolCard
+              href="/debate"
+              title="AI Debate"
+              body="Bull vs Devil's Advocate vs an independent Judge."
             />
           </div>
         </>
       )}
-    </div>
+    </PageContainer>
   );
 }
 
@@ -216,7 +222,10 @@ function EmptyDashboard() {
         <SearchBar className="w-full max-w-md" />
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Button asChild variant="outline">
-            <Link href="/#explore">Explore stocks</Link>
+            <Link href="/">Explore stocks</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/debate">Try an AI Debate</Link>
           </Button>
           <SamplePortfolioButton />
         </div>

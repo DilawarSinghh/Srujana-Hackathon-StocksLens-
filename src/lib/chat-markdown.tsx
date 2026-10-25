@@ -130,5 +130,5 @@ export function ChatMarkdown({
   });
   flushList();
 
-  return <div className="text-sm">{blocks}</div>;
+  return <div className="break-words text-sm">{blocks}</div>;
 }

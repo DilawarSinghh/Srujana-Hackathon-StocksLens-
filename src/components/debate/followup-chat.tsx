@@ -148,7 +148,7 @@ export function FollowupChat({ symbol, context, disabled }: FollowupChatProps) {
                 >
                   <div
                     className={cn(
-                      "max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                      "max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm",
                       m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
                     )}
                   >

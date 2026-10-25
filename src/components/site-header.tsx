@@ -26,16 +26,16 @@ export function SiteHeader() {
           <span>{siteConfig.name}</span>
         </Link>
 
-        <div className="ml-4 hidden md:block">
+        <div className="ml-4 hidden lg:block">
           <MainNav />
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 items-center gap-2">
           <Button
             asChild
             variant="outline"
             size="sm"
-            className="hidden gap-2 text-muted-foreground sm:inline-flex"
+            className="hidden gap-2 text-muted-foreground lg:inline-flex"
           >
             <Link href="/#explore">
               <Search className="h-4 w-4" aria-hidden="true" />

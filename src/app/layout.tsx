@@ -3,8 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { siteConfig } from "@/config/site";
 import { ThemeProvider } from "@/components/theme-provider";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
+import { AppChrome } from "@/components/shell/app-chrome";
 import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({
@@ -51,9 +50,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SiteHeader />
-          <main className="flex-1">{children}</main>
-          <SiteFooter />
+          <AppChrome>{children}</AppChrome>
           <Toaster />
         </ThemeProvider>
       </body>

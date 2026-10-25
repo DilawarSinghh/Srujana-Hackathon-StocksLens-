@@ -10,7 +10,7 @@ export function MainNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+    <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary">
       {siteConfig.nav.map((item) => {
         const active =
           item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);

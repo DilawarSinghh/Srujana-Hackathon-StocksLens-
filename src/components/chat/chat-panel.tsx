@@ -46,6 +46,13 @@ interface ChatPanelProps {
   name: string;
   /** Whether the Web Research tab is available (search provider configured). */
   webEnabled?: boolean;
+  /**
+   * Height behavior:
+   *  - default (sticky stock-page column): cap at the viewport.
+   *  - "fill": expand to fill the parent (standalone /chat workspace), so the
+   *    conversation is the immersive focus of the page.
+   */
+  fill?: boolean;
 }
 
 /**
@@ -56,11 +63,21 @@ interface ChatPanelProps {
  *   - "Filings": document-grounded answers from indexed filings only.
  *   - "Web research": external, allowlisted web sources (when configured).
  */
-export function ChatPanel({ symbol, name, webEnabled = false }: ChatPanelProps) {
+export function ChatPanel({
+  symbol,
+  name,
+  webEnabled = false,
+  fill = false,
+}: ChatPanelProps) {
   const { user, loading: userLoading } = useUser();
 
   return (
-    <Card className="flex max-h-[calc(100vh-7rem)] flex-col">
+    <Card
+      className={cn(
+        "flex flex-col",
+        fill ? "h-full" : "max-h-[calc(100vh-7rem)]",
+      )}
+    >
       <CardHeader className="shrink-0">
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquare className="h-4 w-4" aria-hidden="true" />
@@ -212,7 +229,7 @@ function ChatInner({
               >
                 <div
                   className={cn(
-                    "max-w-[85%] rounded-lg px-3 py-2",
+                    "max-w-[85%] overflow-hidden rounded-lg px-3 py-2",
                     m.role === "user"
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted",
@@ -232,7 +249,7 @@ function ChatInner({
                       <Loader2 className="h-4 w-4 animate-spin" aria-label="Thinking" />
                     )
                   ) : (
-                    <p className="whitespace-pre-wrap text-sm">{m.content}</p>
+                    <p className="whitespace-pre-wrap break-words text-sm">{m.content}</p>
                   )}
                 </div>
               </div>

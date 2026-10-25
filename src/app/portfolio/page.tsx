@@ -20,6 +20,8 @@ import { formatPrice, formatPercentFromFraction } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Disclaimer } from "@/components/disclaimer";
 import { DataFreshness } from "@/components/data-freshness";
+import { PageContainer } from "@/components/shell/page-container";
+import { PageHeader } from "@/components/shell/page-header";
 import { AddHoldingForm } from "@/components/portfolio/add-holding-form";
 import { PortfolioTable } from "@/components/portfolio/portfolio-table";
 import { RiskReportButton, type RiskReportBase } from "@/components/portfolio/risk-report-button";
@@ -124,19 +126,17 @@ export default async function PortfolioPage() {
   };
 
   return (
-    <div className="container flex flex-col gap-6 py-8">
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface/50 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">My Portfolio</h1>
-          <p className="text-sm text-muted-foreground">
-            {getDisplayName(user)}
-          </p>
-        </div>
-        <div className="flex flex-col items-start gap-2 sm:items-end">
-          <DataFreshness lastUpdated={portfolio?.lastUpdated ?? null} />
-          <RiskReportButton base={riskReportBase} />
-        </div>
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="My Portfolio"
+        description={getDisplayName(user)}
+        actions={
+          <>
+            <DataFreshness lastUpdated={portfolio?.lastUpdated ?? null} />
+            <RiskReportButton base={riskReportBase} />
+          </>
+        }
+      />
 
       <Disclaimer />
 
@@ -319,10 +319,10 @@ export default async function PortfolioPage() {
           </Card>
 
           {/* Scenario lab (F-06 scenarios + assumptions + comparison) */}
-          <Card>
+          <Card id="risk-lab" className="scroll-mt-20">
             <CardHeader>
               <CardTitle className="text-base">
-                Scenario lab (hypothetical)
+                Risk Lab — scenario analysis (hypothetical)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -344,7 +344,7 @@ export default async function PortfolioPage() {
           </Card>
         </>
       )}
-    </div>
+    </PageContainer>
   );
 }
 
