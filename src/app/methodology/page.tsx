@@ -209,6 +209,56 @@ export default function MethodologyPage() {
         </p>
       </Section>
 
+      <Section title="Portfolio scenarios and assumptions">
+        <p className="mb-3 text-sm text-muted-foreground">
+          The portfolio risk lab runs <strong>hypothetical</strong> scenarios.
+          Results are illustrative estimates based on stated assumptions, never
+          predictions, and are shown separately from historical observations.
+        </p>
+        <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+          <li>
+            <strong>Market decline</strong>: each holding moves with the market
+            scaled by its historical beta (a missing beta is assumed to be 1.0).
+          </li>
+          <li>
+            <strong>Sector shock</strong>: the chosen sector takes the shock
+            directly; other holdings take beta × shock × a spillover factor
+            (default 0.25, editable).
+          </li>
+          <li>
+            <strong>Interest-rate change</strong>: impact = −(assumed sector rate
+            sensitivity × bps ÷ 100)%. Rate-sensitive sectors (banks/NBFCs, real
+            estate, autos, capital goods) carry larger negative sensitivities;
+            defensives smaller. These are assumptions, not measured durations.
+          </li>
+          <li>
+            <strong>Currency (USD/INR) move</strong>: impact = assumed sector
+            USD/INR exposure × rupee move %. Exporters (IT services, pharma)
+            benefit from rupee weakness; importers are hurt. Assumptions, not
+            measured exposures.
+          </li>
+          <li>
+            <strong>Correlation and volatility contribution</strong> are
+            historical observations from 1-year daily returns (≥60 overlapping
+            days required per pair).
+          </li>
+          <li>
+            <strong>Goal-conflict checks</strong> compare your stated profile
+            (risk tolerance, horizon, near-term liquidity need) against the
+            portfolio and flag mismatches neutrally. They never tell you what to
+            trade. Example rules: horizon under 3 years with beta above 1.0 or
+            small-cap weight above 30%; near-term liquidity need above 20% with
+            small-cap/illiquid weight above 40%; conservative tolerance with
+            volatility above 30% or one sector above 40%; aggressive tolerance
+            with a horizon under 2 years.
+          </li>
+        </ul>
+        <p className="mt-2 text-xs text-muted-foreground">
+          All assumption values are visible and editable in the portfolio
+          &quot;Assumptions and limits&quot; panel.
+        </p>
+      </Section>
+
       <Section title="Known limitations">
         <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
           <li>Prices are delayed, not real-time.</li>

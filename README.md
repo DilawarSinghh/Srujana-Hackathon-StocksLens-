@@ -116,6 +116,7 @@ SQL migrations live in `supabase/migrations/` and are numbered in apply order:
 | `0006_storage_filings_bucket.sql` | public `filings` Storage bucket + read policy |
 | `0007_quality_and_audit.sql` | extra `fundamentals_annual` columns (current_assets, gross_profit, cost_of_revenue, retained_earnings, long_term_debt, total_liabilities); `stock_metrics` quality columns (piotroski_score, piotroski_available_criteria, altman_z, altman_zone, dividend_payout_ratio, dividend_safety); `chat_messages.audit` jsonb |
 | `0008_user_documents.sql` | `user_documents`, `user_document_chunks` (HNSW), owner-only RLS, `match_user_document_chunks()`, private `user-docs` Storage bucket with per-user folder policies |
+| `0009_portfolio_profile.sql` | `portfolio_profiles` (risk tolerance, horizon, near-term liquidity need) with owner-only RLS; drives goal-conflict warnings |
 
 **Run the migrations** (choose one):
 
@@ -583,6 +584,55 @@ hypothetical stress scenario, Piotroski/Altman per holding where available, an
 scenarios" sections, and the disclaimer "Educational analysis only. Not
 investment advice. Hypothetical estimates are not predictions." No price
 targets, recommendations, or buy/sell wording.
+
+## Portfolio risk lab (F-06 scenario analysis)
+
+Beyond the market-drop stress test, `/portfolio` adds a scenario + comparison
+lab for the F-06 problem statement. Every number is computed in code (pure
+functions in `src/lib/portfolio/*`, vitest-tested); the LLM never calculates.
+
+- **Correlation** (`correlation.ts`): a holdings-by-holdings heatmap of 1y daily
+  return correlations (Pearson's r), requiring ≥60 overlapping days per pair
+  (else "insufficient history"), plus a plain-language average-correlation line
+  and each holding's **contribution to portfolio volatility**.
+- **Scenario engine** (`scenarios.ts`): one `runScenario()` returning per-holding
+  and total impact in % and ₹ for four **hypothetical** scenarios:
+  - *Market decline* — beta-scaled broad move (reuses the stress logic).
+  - *Sector shock* — chosen sector takes the shock; other holdings take
+    beta × shock × spillover (default 0.25, editable).
+  - *Interest-rate change* (−100…+200 bps) — −(assumed sector rate sensitivity ×
+    bps/100)%, from the documented table in `src/config/scenario-assumptions.ts`
+    (rate-sensitive sectors like banks/NBFCs, real estate, autos, capital goods
+    carry larger negative sensitivities; defensives small).
+  - *Currency (USD/INR) move* (−10…+10%) — assumed per-sector exposure × move
+    (IT services/pharma exporters positive for rupee weakness; importers
+    negative). All sensitivities are **assumptions, not measured values**.
+- **Assumptions panel**: a collapsible "Assumptions and limits" panel lists the
+  betas, sensitivities, spillover factor, history window, and data freshness,
+  and lets the user edit the scenario assumptions (recomputes instantly,
+  client-side). Historical observations and hypothetical estimates are shown in
+  visually distinct cards; every scenario result carries "Hypothetical estimate
+  based on stated assumptions. Not a prediction."
+- **Allocation comparison** (`comparison.ts`): build an alternative allocation
+  (edit target weights, "reset to current") and see Current vs Alternative side
+  by side — HHI, beta, and the selected scenario's impact — with the delta.
+  Nothing is saved.
+- **Risk profile + goal conflicts** (`goal-conflicts.ts`, migration `0009`): a
+  short profile form (risk tolerance, horizon, near-term liquidity need) stored
+  in `portfolio_profiles` (owner-only RLS). Deterministic, documented rules
+  flag conflicts, e.g. short horizon (<3y) with portfolio beta >1.0 or small-cap
+  weight >30%; liquidity need >20% with small-cap/illiquid weight >40%;
+  conservative tolerance with 1y volatility >30% or one sector >40%; aggressive
+  tolerance with horizon <2y. Warnings are neutral ("you may want to review…"),
+  never advice, and show the rule and the numbers that fired.
+- **Explain my portfolio's risk**: an optional button asks the model to turn the
+  computed risk DATA block into a plain-language explanation. The server
+  computes every number; the model only explains, runs the same guards, and
+  ends with the disclaimer. Shares the hourly AI rate limit with chat.
+
+The PDF risk report also carries the correlation summary, volatility
+contributions, and goal-conflict checks, keeping historical and hypothetical
+sections separate.
 
 ## Acknowledgements
 
