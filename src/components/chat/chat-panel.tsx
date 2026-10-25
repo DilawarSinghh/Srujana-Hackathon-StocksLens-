@@ -9,10 +9,12 @@ import { useChatStream } from "@/components/chat/use-chat-stream";
 import { AuditBadge } from "@/components/chat/audit-badge";
 import { exportChatMarkdown } from "@/lib/chat-export";
 import { ChatMarkdown } from "@/lib/chat-markdown";
+import { WebResearchPanel } from "@/components/chat/web-research-panel";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sheet,
   SheetContent,
@@ -33,10 +35,18 @@ const MAX_CHARS = 1000;
 interface ChatPanelProps {
   symbol: string;
   name: string;
+  /** Whether the Web Research tab is available (search provider configured). */
+  webEnabled?: boolean;
 }
 
-/** Filings-grounded chat. Answers only from this company's filings. */
-export function ChatPanel({ symbol, name }: ChatPanelProps) {
+/**
+ * Chat panel with two modes:
+ *   - "Filings" (default): grounded chat answering only from this company's
+ *     official filings (unchanged behaviour).
+ *   - "Web research": a separate, clearly-labeled mode that answers from a
+ *     short allowlist of reputable web sources.
+ */
+export function ChatPanel({ symbol, name, webEnabled = false }: ChatPanelProps) {
   const { user, loading: userLoading } = useUser();
 
   return (
@@ -53,7 +63,30 @@ export function ChatPanel({ symbol, name }: ChatPanelProps) {
             <Skeleton className="h-24 w-full" />
           </div>
         ) : user ? (
-          <ChatInner symbol={symbol} name={name} />
+          <Tabs defaultValue="filings" className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 px-4 pt-1">
+              <TabsList className="w-full">
+                <TabsTrigger value="filings" className="flex-1">
+                  Filings
+                </TabsTrigger>
+                <TabsTrigger value="web" className="flex-1">
+                  Web research
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent
+              value="filings"
+              className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+            >
+              <ChatInner symbol={symbol} name={name} />
+            </TabsContent>
+            <TabsContent
+              value="web"
+              className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+            >
+              <WebResearchPanel symbol={symbol} name={name} enabled={webEnabled} />
+            </TabsContent>
+          </Tabs>
         ) : (
           <SignedOut />
         )}

@@ -14,6 +14,7 @@ import {
 interface ChatSlotProps {
   symbol: string;
   name: string;
+  webEnabled?: boolean;
 }
 
 /**
@@ -21,14 +22,14 @@ interface ChatSlotProps {
  *  - Desktop (lg+): sticky panel in the right column.
  *  - Mobile: a floating "Ask AI" button opening a bottom sheet.
  */
-export function ChatSlot({ symbol, name }: ChatSlotProps) {
+export function ChatSlot({ symbol, name, webEnabled = false }: ChatSlotProps) {
   const [open, setOpen] = React.useState(false);
 
   return (
     <>
       {/* Desktop */}
       <div className="hidden lg:block lg:sticky lg:top-20">
-        <ChatPanel symbol={symbol} name={name} />
+        <ChatPanel symbol={symbol} name={name} webEnabled={webEnabled} />
       </div>
 
       {/* Mobile floating button + bottom sheet */}
@@ -46,7 +47,7 @@ export function ChatSlot({ symbol, name }: ChatSlotProps) {
           <SheetContent side="bottom" className="h-[85vh] p-0">
             <SheetTitle className="sr-only">Ask about {name}</SheetTitle>
             <div className="h-full p-3">
-              <ChatPanel symbol={symbol} name={name} />
+              <ChatPanel symbol={symbol} name={name} webEnabled={webEnabled} />
             </div>
           </SheetContent>
         </Sheet>

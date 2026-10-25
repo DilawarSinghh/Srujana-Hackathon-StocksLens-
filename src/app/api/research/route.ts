@@ -94,18 +94,24 @@ async function cachedFetchPage(
   }
 }
 
-/** Citation metadata for the WEB sources actually cited in the answer. */
+/**
+ * Citation metadata for the WEB sources actually cited in the answer. The
+ * chip label ("domain · YYYY-MM-DD") is stored in `section` so the UI can show
+ * the source domain and retrieved date without a schema change.
+ */
 function citedWebSources(sources: WebSourceInput[], answer: string): ChatSource[] {
   const out: ChatSource[] = [];
   sources.forEach((s, i) => {
     const tag = `W${i + 1}`;
     if (answer.includes(`[${tag}]`)) {
+      const domain = hostOf(s.url) ?? "source";
+      const date = s.retrievedAt.slice(0, 10);
       out.push({
         id: tag,
         doc: s.title,
         fiscalYear: null,
         page: null,
-        section: hostOf(s.url) ?? null,
+        section: `${domain} · ${date}`,
         snippet: s.text.slice(0, 300),
         url: s.url,
       });
