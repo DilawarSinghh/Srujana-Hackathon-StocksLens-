@@ -167,16 +167,30 @@ export async function deletePost(postId: string): Promise<ActionResult> {
   if (!user) return { ok: false, error: "Please sign in." };
   const supabase = await createClient();
 
-  // Author-scoped by default (defense in depth on top of RLS). Moderators may
-  // delete any post, so the author filter is skipped only for them.
   const isModerator = await isCommunityModerator(supabase);
-  let query = supabase
+
+  if (isModerator) {
+    // Moderators soft-delete via a least-privilege SECURITY DEFINER RPC that
+    // mutates only `deleted_at` and re-checks moderator status server-side. A
+    // direct UPDATE would be blocked by the author-only "posts update own" RLS
+    // policy (which we intentionally leave unchanged).
+    const { data: deleted, error } = await supabase.rpc(
+      "moderator_soft_delete_post",
+      { target_post_id: postId },
+    );
+    if (error) return { ok: false, error: "Could not delete the post." };
+    if (!deleted) return { ok: false, error: "Post not found." };
+    revalidatePath("/community");
+    return { ok: true };
+  }
+
+  // Ordinary authors: author-scoped soft-delete (defense in depth on top of
+  // the "posts update own" RLS policy).
+  const { error } = await supabase
     .from("community_posts")
     .update({ deleted_at: new Date().toISOString() })
-    .eq("id", postId);
-  if (!isModerator) query = query.eq("author_id", user.id);
-
-  const { error } = await query;
+    .eq("id", postId)
+    .eq("author_id", user.id);
   if (error) return { ok: false, error: "Could not delete the post." };
   revalidatePath("/community");
   return { ok: true };
@@ -407,16 +421,29 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
   if (!user) return { ok: false, error: "Please sign in." };
   const supabase = await createClient();
 
-  // Author-scoped by default (defense in depth on top of RLS); moderators may
-  // delete any comment, so the author filter is skipped only for them.
   const isModerator = await isCommunityModerator(supabase);
-  let query = supabase
+
+  if (isModerator) {
+    // Moderators soft-delete via a least-privilege SECURITY DEFINER RPC that
+    // mutates only `deleted_at` and re-checks moderator status server-side. A
+    // direct UPDATE would be blocked by the author-only "comments update own"
+    // RLS policy (which we intentionally leave unchanged).
+    const { data: deleted, error } = await supabase.rpc(
+      "moderator_soft_delete_comment",
+      { target_comment_id: commentId },
+    );
+    if (error) return { ok: false, error: "Could not delete the comment." };
+    if (!deleted) return { ok: false, error: "Comment not found." };
+    return { ok: true };
+  }
+
+  // Ordinary authors: author-scoped soft-delete (defense in depth on top of
+  // the "comments update own" RLS policy).
+  const { error } = await supabase
     .from("community_comments")
     .update({ deleted_at: new Date().toISOString() })
-    .eq("id", commentId);
-  if (!isModerator) query = query.eq("author_id", user.id);
-
-  const { error } = await query;
+    .eq("id", commentId)
+    .eq("author_id", user.id);
   if (error) return { ok: false, error: "Could not delete the comment." };
   return { ok: true };
 }

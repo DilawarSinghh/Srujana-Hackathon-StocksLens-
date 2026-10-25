@@ -1,99 +1,139 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * Regression tests for author-scoped soft deletion (deletePost / deleteComment).
+ * MOCK-LEVEL action tests for deletePost / deleteComment.
  *
- * Verifies the defense-in-depth added on top of RLS:
- *  - a regular (non-moderator) user's delete is filtered by author_id = self,
- *  - a moderator's delete is NOT author-filtered (can remove any row),
- *  - signed-out users are rejected,
- * while never changing the soft-delete semantics (update deleted_at).
+ * These verify the ACTION's control flow only (which path it takes, which
+ * filters/RPC it calls, how it maps results). They do NOT prove PostgreSQL
+ * authorization — that is covered by the Docker-gated real-Supabase RLS
+ * integration test in e2e/moderation.rls.spec.ts.
  *
- * We record the `.eq()` filters applied to the update so we can assert whether
- * an author_id filter was present.
+ * What is asserted here:
+ *  - ordinary author → author-scoped UPDATE (id + author_id = self),
+ *  - ordinary user cannot target another user's row (author_id filter present),
+ *  - moderator → calls the least-privilege RPC (not a direct UPDATE),
+ *  - RPC "false" (missing record) → surfaced as a not-found failure,
+ *  - RPC error → surfaced as failure (never a false success),
+ *  - signed-out → rejected.
  */
 
 const getCurrentUser = vi.fn();
 vi.mock("@/lib/auth", () => ({ getCurrentUser: () => getCurrentUser() }));
-
-// revalidatePath is a no-op in tests.
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-// Capture state for each call.
+// Mutable state the mock client reads.
 let isModerator = false;
-let lastTable = "";
-let lastEqFilters: Record<string, unknown> = {};
 let updateError: { message: string } | null = null;
+let rpcResult: { data: boolean | null; error: { message: string } | null } = {
+  data: true,
+  error: null,
+};
+
+// Recording of what the action did.
+let lastUpdateTable = "";
+let lastUpdateEq: Record<string, unknown> = {};
+let lastRpcName = "";
+let lastRpcArgs: Record<string, unknown> | null = null;
 
 function makeClient() {
   return {
-    rpc: async (fn: string) =>
-      fn === "is_community_moderator"
-        ? { data: isModerator, error: null }
-        : { data: null, error: null },
+    async rpc(fn: string, args: Record<string, unknown>) {
+      lastRpcName = fn;
+      lastRpcArgs = args;
+      if (fn === "is_community_moderator") {
+        return { data: isModerator, error: null };
+      }
+      // moderator_soft_delete_post / _comment
+      return rpcResult;
+    },
     from(table: string) {
-      lastTable = table;
       return {
         update() {
-          lastEqFilters = {};
-          const builder: Record<string, unknown> = {};
-          // .eq() is chainable and must be awaitable at the end; make the
-          // builder a thenable that resolves to { error }.
+          lastUpdateTable = table;
+          lastUpdateEq = {};
           const chain = {
             eq(col: string, val: unknown) {
-              lastEqFilters[col] = val;
+              lastUpdateEq[col] = val;
               return chain;
             },
             then(resolve: (v: { error: typeof updateError }) => void) {
               resolve({ error: updateError });
             },
           };
-          Object.assign(builder, chain);
           return chain;
         },
       };
     },
   };
 }
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => makeClient(),
-}));
+vi.mock("@/lib/supabase/server", () => ({ createClient: async () => makeClient() }));
 
 import { deletePost, deleteComment } from "./actions";
 
 beforeEach(() => {
   getCurrentUser.mockReset().mockResolvedValue({ id: "author-1" });
   isModerator = false;
-  lastTable = "";
-  lastEqFilters = {};
   updateError = null;
+  rpcResult = { data: true, error: null };
+  lastUpdateTable = "";
+  lastUpdateEq = {};
+  lastRpcName = "";
+  lastRpcArgs = null;
 });
 
-describe("deletePost — author-scoped soft delete", () => {
-  it("rejects signed-out users", async () => {
+describe("deletePost", () => {
+  it("rejects signed-out users and does nothing", async () => {
     getCurrentUser.mockResolvedValue(null);
     const res = await deletePost("post-1");
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/sign in/i);
+    expect(lastUpdateTable).toBe("");
+    expect(lastRpcName).toBe("");
   });
 
-  it("a regular author's delete is filtered by id AND author_id = self", async () => {
+  it("ordinary author → author-scoped UPDATE (id + author_id = self), no RPC", async () => {
     const res = await deletePost("post-1");
     expect(res.ok).toBe(true);
-    expect(lastTable).toBe("community_posts");
-    expect(lastEqFilters.id).toBe("post-1");
-    expect(lastEqFilters.author_id).toBe("author-1"); // defense in depth
+    expect(lastUpdateTable).toBe("community_posts");
+    expect(lastUpdateEq.id).toBe("post-1");
+    expect(lastUpdateEq.author_id).toBe("author-1");
+    // Only the moderator check RPC ran, never the soft-delete RPC.
+    expect(lastRpcName).toBe("is_community_moderator");
   });
 
-  it("a moderator's delete is NOT author-filtered (can remove any post)", async () => {
+  it("ordinary user cannot target another user's row (author filter binds to self)", async () => {
+    // Even if the caller passes someone else's post id, the UPDATE is bound to
+    // author_id = the caller, so RLS + this filter prevent touching it.
+    await deletePost("someone-elses-post");
+    expect(lastUpdateEq.author_id).toBe("author-1");
+  });
+
+  it("moderator → calls the least-privilege RPC, not a direct UPDATE", async () => {
     isModerator = true;
     const res = await deletePost("post-1");
     expect(res.ok).toBe(true);
-    expect(lastEqFilters.id).toBe("post-1");
-    expect(lastEqFilters.author_id).toBeUndefined(); // moderator path preserved
+    expect(lastRpcName).toBe("moderator_soft_delete_post");
+    expect(lastRpcArgs).toEqual({ target_post_id: "post-1" });
+    expect(lastUpdateTable).toBe(""); // no direct UPDATE path for moderators
   });
 
-  it("surfaces a DB error (e.g. RLS blocked a non-author) as a failure", async () => {
+  it("moderator + missing record (RPC false) → not-found failure, not success", async () => {
+    isModerator = true;
+    rpcResult = { data: false, error: null };
+    const res = await deletePost("ghost");
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/not found/i);
+  });
+
+  it("moderator + RPC error → surfaced as failure (never false success)", async () => {
+    isModerator = true;
+    rpcResult = { data: null, error: { message: "not a moderator" } };
+    const res = await deletePost("post-1");
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/could not delete the post/i);
+  });
+
+  it("ordinary author UPDATE error is surfaced as failure", async () => {
     updateError = { message: "permission denied" };
     const res = await deletePost("post-1");
     expect(res.ok).toBe(false);
@@ -101,26 +141,44 @@ describe("deletePost — author-scoped soft delete", () => {
   });
 });
 
-describe("deleteComment — author-scoped soft delete", () => {
+describe("deleteComment", () => {
   it("rejects signed-out users", async () => {
     getCurrentUser.mockResolvedValue(null);
-    const res = await deleteComment("comment-1");
+    const res = await deleteComment("c-1");
     expect(res.ok).toBe(false);
   });
 
-  it("a regular author's delete is filtered by id AND author_id = self", async () => {
-    const res = await deleteComment("comment-1");
+  it("ordinary author → author-scoped UPDATE (id + author_id = self)", async () => {
+    const res = await deleteComment("c-1");
     expect(res.ok).toBe(true);
-    expect(lastTable).toBe("community_comments");
-    expect(lastEqFilters.id).toBe("comment-1");
-    expect(lastEqFilters.author_id).toBe("author-1");
+    expect(lastUpdateTable).toBe("community_comments");
+    expect(lastUpdateEq.id).toBe("c-1");
+    expect(lastUpdateEq.author_id).toBe("author-1");
+    expect(lastRpcName).toBe("is_community_moderator");
   });
 
-  it("a moderator's delete is NOT author-filtered", async () => {
+  it("moderator → calls the least-privilege RPC", async () => {
     isModerator = true;
-    const res = await deleteComment("comment-1");
+    const res = await deleteComment("c-1");
     expect(res.ok).toBe(true);
-    expect(lastEqFilters.id).toBe("comment-1");
-    expect(lastEqFilters.author_id).toBeUndefined();
+    expect(lastRpcName).toBe("moderator_soft_delete_comment");
+    expect(lastRpcArgs).toEqual({ target_comment_id: "c-1" });
+    expect(lastUpdateTable).toBe("");
+  });
+
+  it("moderator + missing record (RPC false) → not-found failure", async () => {
+    isModerator = true;
+    rpcResult = { data: false, error: null };
+    const res = await deleteComment("ghost");
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/not found/i);
+  });
+
+  it("moderator + RPC error → surfaced as failure", async () => {
+    isModerator = true;
+    rpcResult = { data: null, error: { message: "not a moderator" } };
+    const res = await deleteComment("c-1");
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/could not delete the comment/i);
   });
 });

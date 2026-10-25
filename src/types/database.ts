@@ -884,6 +884,14 @@ export interface Database {
         Args: Record<string, never>;
         Returns: boolean;
       };
+      moderator_soft_delete_post: {
+        Args: { target_post_id: string };
+        Returns: boolean;
+      };
+      moderator_soft_delete_comment: {
+        Args: { target_comment_id: string };
+        Returns: boolean;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
