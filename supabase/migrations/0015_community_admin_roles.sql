@@ -21,8 +21,22 @@
 --   * Restoration (un-delete) and report handling are admin-/moderator-gated.
 --   * Every privileged action is recorded in community_audit_log.
 --
+-- Ordering matters and is intentional (three phases):
+--   PHASE 1 — tables, indexes, seed. Created first because a `language sql`
+--             function body is parsed and its table references are validated at
+--             CREATE FUNCTION time; the tables must already exist.
+--   PHASE 2 — role-predicate + audit functions. Created next because RLS
+--             policies resolve the functions they reference at CREATE POLICY
+--             time; the functions must already exist.
+--   PHASE 3 — RLS policies + the RPCs.
+--
 -- Does NOT change authentication, financial scoring, portfolio risk, or
 -- unrelated RLS.
+-- =============================================================================
+
+
+-- =============================================================================
+-- PHASE 1 — TABLES, INDEXES, SEED
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -36,13 +50,6 @@ comment on table public.community_admins is
   'Community super-admins. Populated only via the allowlist bootstrap; never by an RPC.';
 
 alter table public.community_admins enable row level security;
-
--- A user may see whether THEY are an admin; admins may read all admin rows.
-drop policy if exists "admins read self or admin" on public.community_admins;
-create policy "admins read self or admin" on public.community_admins for select
-  using (user_id = auth.uid() or public.is_community_admin());
--- No client INSERT/UPDATE/DELETE policy: writes happen only via the bootstrap
--- SECURITY DEFINER function or the service role.
 
 -- -----------------------------------------------------------------------------
 -- community_admin_emails: the bootstrap allowlist. Seeded with the designated
@@ -84,15 +91,15 @@ create index if not exists community_audit_log_created_idx
   on public.community_audit_log (created_at desc);
 
 alter table public.community_audit_log enable row level security;
--- Admins/moderators may read the audit log; no client write policy (writes are
--- done inside the SECURITY DEFINER functions below).
-drop policy if exists "audit read mod" on public.community_audit_log;
-create policy "audit read mod" on public.community_audit_log for select
-  using (public.is_community_moderator());
 
--- -----------------------------------------------------------------------------
+
+-- =============================================================================
+-- PHASE 2 — ROLE PREDICATE + AUDIT FUNCTIONS
+-- The tables above now exist, so these `language sql` bodies validate; and they
+-- exist before the policies in Phase 3 that reference them.
+-- =============================================================================
+
 -- is_community_admin(): true when the caller is a super-admin.
--- -----------------------------------------------------------------------------
 create or replace function public.is_community_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
@@ -102,12 +109,10 @@ $$;
 comment on function public.is_community_admin() is
   'True when the calling user (auth.uid()) is a community super-admin.';
 
--- -----------------------------------------------------------------------------
 -- is_community_moderator(): REDEFINED (create or replace) so admins implicitly
 -- count as moderators. This keeps every existing moderator RLS policy and the
 -- 0014 soft-delete RPCs working for the admin without any new UPDATE policy.
 -- (Original definition: membership in community_moderators only.)
--- -----------------------------------------------------------------------------
 create or replace function public.is_community_moderator()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
@@ -117,9 +122,7 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
--- -----------------------------------------------------------------------------
--- Internal audit writer (definer; callable only from the functions below).
--- -----------------------------------------------------------------------------
+-- Internal audit writer (definer; callable only from the RPCs below).
 create or replace function public.community_audit(
   p_action text, p_target_user uuid, p_target_type text, p_target_id uuid, p_detail jsonb
 ) returns void language sql volatile security definer set search_path = public as $$
@@ -127,6 +130,25 @@ create or replace function public.community_audit(
   values (auth.uid(), p_action, p_target_user, p_target_type, p_target_id, p_detail);
 $$;
 revoke all on function public.community_audit(text, uuid, text, uuid, jsonb) from public;
+
+
+-- =============================================================================
+-- PHASE 3 — RLS POLICIES + RPCs
+-- The functions referenced below exist from Phase 2.
+-- =============================================================================
+
+-- community_admins: a user may see whether THEY are an admin; admins read all.
+drop policy if exists "admins read self or admin" on public.community_admins;
+create policy "admins read self or admin" on public.community_admins for select
+  using (user_id = auth.uid() or public.is_community_admin());
+-- No client INSERT/UPDATE/DELETE policy: writes happen only via the bootstrap
+-- SECURITY DEFINER function or the service role.
+
+-- community_audit_log: admins/moderators may read; no client write policy
+-- (writes happen inside the SECURITY DEFINER functions).
+drop policy if exists "audit read mod" on public.community_audit_log;
+create policy "audit read mod" on public.community_audit_log for select
+  using (public.is_community_moderator());
 
 -- -----------------------------------------------------------------------------
 -- ensure_community_admin_bootstrap(): self-promote the CALLER to super-admin
@@ -224,9 +246,10 @@ revoke all on function public.admin_set_moderator(uuid, boolean) from public;
 grant execute on function public.admin_set_moderator(uuid, boolean) to authenticated;
 
 -- -----------------------------------------------------------------------------
--- admin_restore_post / admin_restore_comment: un-soft-delete (deleted_at=null).
--- Moderator-or-admin gated (is_community_moderator() already includes admins).
--- Mutates ONLY deleted_at. Returns true when a row was restored.
+-- moderator_restore_post / moderator_restore_comment: un-soft-delete
+-- (deleted_at=null). Moderator-or-admin gated (is_community_moderator() already
+-- includes admins). Mutates ONLY deleted_at. Returns true when a row was
+-- restored.
 -- -----------------------------------------------------------------------------
 create or replace function public.moderator_restore_post(target_post_id uuid)
 returns boolean language plpgsql volatile security definer set search_path = public as $$

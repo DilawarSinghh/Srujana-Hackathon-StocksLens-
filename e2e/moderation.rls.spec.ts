@@ -83,7 +83,7 @@ test.describe("moderator soft-delete (real RLS)", () => {
     // Author creates a post.
     const { data: post, error: postErr } = await author.client
       .from("community_posts")
-      .insert({ author_id: author.id, post_type: "general", body: "original body" })
+      .insert({ author_id: author.id, post_type: "discussion", body: "original body" })
       .select("id, body, author_id")
       .single();
     expect(postErr, postErr?.message).toBeNull();
@@ -116,7 +116,7 @@ test.describe("moderator soft-delete (real RLS)", () => {
 
     const { data: post } = await author.client
       .from("community_posts")
-      .insert({ author_id: author.id, post_type: "general", body: "p" })
+      .insert({ author_id: author.id, post_type: "discussion", body: "p" })
       .select("id")
       .single();
     const { data: comment } = await author.client
@@ -147,7 +147,7 @@ test.describe("moderator soft-delete (real RLS)", () => {
 
     const { data: post } = await author.client
       .from("community_posts")
-      .insert({ author_id: author.id, post_type: "general", body: "keep me" })
+      .insert({ author_id: author.id, post_type: "discussion", body: "keep me" })
       .select("id")
       .single();
 
@@ -172,7 +172,7 @@ test.describe("moderator soft-delete (real RLS)", () => {
     created.push(author.id);
     const { data: post } = await author.client
       .from("community_posts")
-      .insert({ author_id: author.id, post_type: "general", body: "mine" })
+      .insert({ author_id: author.id, post_type: "discussion", body: "mine" })
       .select("id")
       .single();
 
@@ -198,7 +198,7 @@ test.describe("moderator soft-delete (real RLS)", () => {
 
     const { data: post } = await author.client
       .from("community_posts")
-      .insert({ author_id: author.id, post_type: "general", body: "safe" })
+      .insert({ author_id: author.id, post_type: "discussion", body: "safe" })
       .select("id")
       .single();
 

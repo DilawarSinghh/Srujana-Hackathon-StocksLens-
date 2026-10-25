@@ -47,7 +47,7 @@ test("signed-out visitor to /stocks is redirected to /login (not the landing pag
 });
 
 // --- 2-4. Protected routes redirect signed-out users to /login ----------
-for (const path of ["/dashboard", "/chat", "/debate"]) {
+for (const path of ["/dashboard", "/chat", "/debate", "/profile", "/community/admin"]) {
   test(`signed-out visitor to ${path} is redirected to /login`, async ({ page }) => {
     await page.goto(path);
     await page.waitForURL(/\/login/);

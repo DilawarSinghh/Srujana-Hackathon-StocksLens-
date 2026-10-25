@@ -30,7 +30,13 @@ describe("app navigation config", () => {
       "Research",
       "Portfolio",
       "Community",
+      "Account",
     ]);
+  });
+
+  it("includes a Profile destination in the Account group", () => {
+    const account = appNav.find((g) => g.label === "Account");
+    expect(account?.items.some((i) => i.href === "/profile")).toBe(true);
   });
 });
 
