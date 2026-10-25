@@ -1,5 +1,15 @@
 import { defineConfig, devices } from "@playwright/test";
+import { config as loadEnv } from "dotenv";
 import { STORAGE_STATE, readTestAuthEnv } from "./e2e/auth/test-auth.config";
+
+// Load local env the same way the harness scripts do, so E2E_* vars placed in
+// `.env.local` (as the README instructs) are visible when this config decides
+// whether to register the authenticated projects. Without this, a correctly
+// configured harness would silently fail to activate. `.env.local` takes
+// precedence; `.env` fills any gaps. Never overrides an already-set process
+// env (e.g. CI secrets).
+loadEnv({ path: ".env.local", override: false });
+loadEnv({ path: ".env", override: false });
 
 const PORT = 3100;
 const baseURL = `http://localhost:${PORT}`;

@@ -88,6 +88,16 @@ pnpm e2e                       # the authenticated project auto-registers once
 RUN_LIVE_AI=1 pnpm e2e
 ```
 
+### The two live-AI opt-in flags (distinct, by design)
+
+| Flag | Enables | Command | What it proves |
+| --- | --- | --- | --- |
+| `RUN_LIVE_GROQ=1` | the standalone provider smoke script | `RUN_LIVE_GROQ=1 pnpm smoke:groq` | Groq is reachable and the key is valid (direct provider call) |
+| `RUN_LIVE_AI=1` | the authenticated chat E2E test | `RUN_LIVE_AI=1 pnpm e2e` | a question submitted through the **app route** in a real browser returns a substantive answer |
+
+They are deliberately separate: one checks the provider in isolation; the other
+checks the full authenticated request path in the UI. Both use Groq only.
+
 The `setup` project seeds the user and writes the signed-in browser state to
 `e2e/.auth/user.json` (gitignored). The `authenticated` project reuses it.
 
