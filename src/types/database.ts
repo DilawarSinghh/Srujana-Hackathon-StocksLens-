@@ -92,12 +92,16 @@ type ProfileRow = {
   id: string;
   full_name: string | null;
   avatar_url: string | null;
+  bio: string | null;
+  username: string | null;
   created_at: string;
 }
 type ProfileInsert = {
   id: string;
   full_name?: string | null;
   avatar_url?: string | null;
+  bio?: string | null;
+  username?: string | null;
   created_at?: string;
 }
 
@@ -803,6 +807,30 @@ type BlockRow = { blocker_id: string; blocked_id: string; created_at: string };
 type BlockInsert = { blocker_id: string; blocked_id: string; created_at?: string };
 type ModeratorRow = { user_id: string; created_at: string };
 type ModeratorInsert = { user_id: string; created_at?: string };
+type AdminRow = { user_id: string; created_at: string };
+type AdminInsert = { user_id: string; created_at?: string };
+type AdminEmailRow = { email: string; created_at: string };
+type AdminEmailInsert = { email: string; created_at?: string };
+type AuditLogRow = {
+  id: string;
+  actor_id: string | null;
+  action: string;
+  target_user_id: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  detail: unknown | null;
+  created_at: string;
+};
+type AuditLogInsert = {
+  id?: string;
+  actor_id?: string | null;
+  action: string;
+  target_user_id?: string | null;
+  target_type?: string | null;
+  target_id?: string | null;
+  detail?: unknown | null;
+  created_at?: string;
+};
 
 // ===========================================================================
 // Database schema
@@ -845,6 +873,9 @@ export interface Database {
       community_reports: { Row: ReportRow; Insert: ReportInsert; Update: Partial<ReportInsert>; Relationships: [] };
       community_blocks: { Row: BlockRow; Insert: BlockInsert; Update: Partial<BlockInsert>; Relationships: [] };
       community_moderators: { Row: ModeratorRow; Insert: ModeratorInsert; Update: Partial<ModeratorInsert>; Relationships: [] };
+      community_admins: { Row: AdminRow; Insert: AdminInsert; Update: Partial<AdminInsert>; Relationships: [] };
+      community_admin_emails: { Row: AdminEmailRow; Insert: AdminEmailInsert; Update: Partial<AdminEmailInsert>; Relationships: [] };
+      community_audit_log: { Row: AuditLogRow; Insert: AuditLogInsert; Update: Partial<AuditLogInsert>; Relationships: [] };
     };
     Views: {
       latest_scores: { Row: ScoreRow; Relationships: [] };
@@ -890,6 +921,26 @@ export interface Database {
       };
       moderator_soft_delete_comment: {
         Args: { target_comment_id: string };
+        Returns: boolean;
+      };
+      moderator_restore_post: {
+        Args: { target_post_id: string };
+        Returns: boolean;
+      };
+      moderator_restore_comment: {
+        Args: { target_comment_id: string };
+        Returns: boolean;
+      };
+      is_community_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      ensure_community_admin_bootstrap: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      admin_set_moderator: {
+        Args: { target_user: string; make_moderator: boolean };
         Returns: boolean;
       };
     };

@@ -8,6 +8,7 @@ import {
   Wallet,
   ShieldAlert,
   Users,
+  UserCircle,
 } from "lucide-react";
 
 /**
@@ -105,6 +106,18 @@ export const appNav: NavGroup[] = [
       },
     ],
   },
+  {
+    label: "Account",
+    items: [
+      {
+        title: "Profile",
+        href: "/profile",
+        icon: UserCircle,
+        match: "exact",
+        description: "Your account, activity and preferences",
+      },
+    ],
+  },
 ];
 
 /** Flattened list of real destinations (used by tests and the mobile drawer). */
@@ -122,6 +135,7 @@ export const APP_SHELL_PREFIXES = [
   "/documents",
   "/portfolio",
   "/community",
+  "/profile",
 ] as const;
 
 /**

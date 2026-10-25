@@ -12,6 +12,7 @@ const PROTECTED_PREFIXES = [
   "/documents",
   "/chat",
   "/debate",
+  "/profile",
 ];
 
 /**
