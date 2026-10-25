@@ -127,6 +127,12 @@ export const reportSchema = z.object({
 });
 
 export const createShareSchema = z.object({
+  /**
+   * Optional feed-post body. When present, the share is published to the feed
+   * as a `portfolio_review` post in the same server action (see
+   * createSharePost). When absent, only the standalone share is created.
+   */
+  postBody: z.string().trim().max(POST_BODY_MAX).optional(),
   title: z.string().trim().min(1).max(120),
   notes: z.string().trim().max(1000).optional(),
   visibility: z.enum(["public", "unlisted", "private"]).default("public"),

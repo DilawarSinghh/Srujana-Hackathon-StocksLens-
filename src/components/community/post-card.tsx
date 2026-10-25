@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Repeat2, TrendingUp, TrendingDown, Minus, Wallet } from "lucide-react";
+import { Repeat2, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import type { FeedPost } from "@/lib/community/queries";
 import { relativeTime, absoluteTime } from "@/lib/community/format";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { PostBody } from "@/components/community/post-body";
 import { AttachedStockCard } from "@/components/community/attached-stock-card";
 import { PostActions } from "@/components/community/post-actions";
 import { PollCard } from "@/components/community/poll-card";
+import { PortfolioShareCard } from "@/components/community/portfolio-share-card";
 import { PostMenu } from "@/components/community/post-menu";
 
 const TYPE_LABEL: Record<FeedPost["postType"], string | null> = {
@@ -142,13 +143,7 @@ function InnerPost({
         {post.poll ? <PollCard poll={post.poll} signedIn={signedIn} /> : null}
 
         {post.portfolioShareId ? (
-          <Link
-            href={`/community/portfolio/${post.portfolioShareId}`}
-            className="mt-2 flex items-center gap-1.5 rounded-lg border border-border bg-surface/40 px-3 py-2 text-sm hover:border-primary/40"
-          >
-            <Wallet className="h-4 w-4 text-primary" aria-hidden="true" />
-            View shared portfolio for review
-          </Link>
+          <PortfolioShareCard share={post.portfolioShare} shareId={post.portfolioShareId} />
         ) : null}
 
         <PostActions

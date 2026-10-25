@@ -102,16 +102,17 @@ test("stock page shows the chat panel (signed-out prompt, no filings error)", as
 });
 
 // --- Community (public feed + signed-out composer prompt) -----------------
-test("community feed loads with the composer sign-in prompt when logged out", async ({
+test("community feed loads for a signed-out visitor with its tabs", async ({
   page,
 }) => {
   await page.goto("/community");
   await expect(page.getByRole("heading", { name: /^Community$/ })).toBeVisible();
   // The standing user-generated-content notice is present.
   await expect(page.getByText(/user-generated opinions/i).first()).toBeVisible();
-  // Signed-out users see a prompt to sign in, not the composer.
+  // Posting now happens via the floating "+" action, which routes a signed-out
+  // user into the sign-in flow (asserted in the dedicated composer test below).
   await expect(
-    page.getByText(/Sign in with Google/i).first(),
+    page.getByRole("link", { name: /sign in to create a post/i }),
   ).toBeVisible();
   // Feed tabs are present.
   await expect(page.getByRole("tab", { name: /For You/i })).toBeVisible();
@@ -130,6 +131,28 @@ test("community guidelines page renders", async ({ page }) => {
   await page.goto("/community/guidelines");
   await expect(page.getByRole("heading", { name: /Community guidelines/i })).toBeVisible();
   await expect(page.getByText(/official StockLens rating/i).first()).toBeVisible();
+});
+
+test("community feed has no permanently-expanded composer; a floating action is present", async ({
+  page,
+}) => {
+  await page.goto("/community");
+  // The old inline "Post text" composer must NOT be mounted in the feed.
+  await expect(page.getByLabel(/^Post text$/)).toHaveCount(0);
+  // Signed-out visitors get a create action that routes into the sign-in flow
+  // (a link, never a broken dialog).
+  const create = page.getByRole("link", { name: /create a post|sign in to create a post/i });
+  await expect(create.first()).toBeVisible();
+  await expect(create.first()).toHaveAttribute("href", /\/login/);
+});
+
+test("community content-type filter exposes only real post types", async ({ page }) => {
+  await page.goto("/community");
+  const group = page.getByRole("group", { name: /Filter by post type/i });
+  await expect(group).toBeVisible();
+  // Real types only — no fabricated "Questions" category.
+  await expect(group.getByRole("link", { name: /^Portfolios$/ })).toBeVisible();
+  await expect(group.getByRole("link", { name: /^Questions$/ })).toHaveCount(0);
 });
 
 // Private community sub-routes require auth (enforced in-page via redirect).

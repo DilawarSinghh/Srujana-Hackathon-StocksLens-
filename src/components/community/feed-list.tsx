@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 import type { FeedPost, FeedTab } from "@/lib/community/queries";
+import type { CommunityPostType } from "@/types/database";
 import { loadMoreFeed } from "@/app/community/feed-actions";
 import { PostCard } from "@/components/community/post-card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ export function FeedList({
   signedIn,
   viewerId,
   emptyMessage,
+  postType = null,
 }: {
   tab: FeedTab;
   initialPosts: FeedPost[];
@@ -26,6 +28,7 @@ export function FeedList({
   signedIn: boolean;
   viewerId: string | null;
   emptyMessage: string;
+  postType?: CommunityPostType | null;
 }) {
   const [posts, setPosts] = React.useState(initialPosts);
   const [cursor, setCursor] = React.useState(initialCursor);
@@ -44,7 +47,7 @@ export function FeedList({
     setLoading(true);
     setError(false);
     try {
-      const res = await loadMoreFeed(tab, cursor);
+      const res = await loadMoreFeed(tab, cursor, postType);
       setPosts((prev) => {
         const seen = new Set(prev.map((p) => p.id));
         return [...prev, ...res.posts.filter((p) => !seen.has(p.id))];

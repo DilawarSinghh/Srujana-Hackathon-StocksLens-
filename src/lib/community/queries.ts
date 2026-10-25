@@ -4,6 +4,7 @@ import type {
   CommunityPostType,
   CommunityStance,
   StockCardSnapshot,
+  ShareRiskSnapshot,
 } from "@/types/database";
 import {
   forYouScore,
@@ -14,6 +15,35 @@ import {
 } from "@/lib/community/ranking";
 
 export type FeedTab = "foryou" | "following" | "trending" | "latest";
+
+/**
+ * A compact, disclosure-respecting portfolio snapshot embedded in the feed so a
+ * portfolio-share post can render inline without a second navigation. Only the
+ * fields the author chose to disclose are ever populated here; hidden fields
+ * stay null. Values are historical snapshot values, never live portfolio data.
+ */
+export interface PortfolioSharePreview {
+  id: string;
+  title: string;
+  isHypothetical: boolean;
+  revoked: boolean;
+  createdAt: string;
+  showHoldings: boolean;
+  showAllocations: boolean;
+  showSectors: boolean;
+  showRiskMetrics: boolean;
+  showQuantities: boolean;
+  showAmounts: boolean;
+  riskSnapshot: ShareRiskSnapshot | null;
+  holdings: {
+    symbol: string;
+    name: string | null;
+    sector: string | null;
+    allocationPct: number | null;
+    quantity: number | null;
+    investedAmount: number | null;
+  }[];
+}
 
 /** A post enriched for the feed / detail view. */
 export interface FeedPost {
@@ -32,6 +62,8 @@ export interface FeedPost {
   commentCount: number;
   repostCount: number;
   portfolioShareId: string | null;
+  /** Disclosure-respecting snapshot for portfolio-review posts; null otherwise. */
+  portfolioShare: PortfolioSharePreview | null;
   stocks: { symbol: string; snapshot: StockCardSnapshot | null }[];
   /** Original post when this row is a repost (shallow; no nested reposts). */
   repostOf: FeedPost | null;
@@ -73,6 +105,84 @@ async function loadProfiles(
     .in("id", unique);
   const map = new Map<string, ProfileLite>();
   for (const p of data ?? []) map.set(p.id, p);
+  return map;
+}
+
+/**
+ * Batch-load disclosure-respecting portfolio-share previews for a set of share
+ * ids. RLS returns a share row only when it is public/unlisted (and not
+ * revoked) or owned by the viewer, so this never leaks a private share.
+ * Hidden fields are projected to null per the author's disclosure flags, so a
+ * client can never receive a value the author didn't choose to show. Values are
+ * the immutable snapshot captured at publish time, never live portfolio data.
+ */
+async function loadPortfolioShares(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  shareIds: string[],
+): Promise<Map<string, PortfolioSharePreview>> {
+  const map = new Map<string, PortfolioSharePreview>();
+  if (shareIds.length === 0) return map;
+
+  const { data: shares } = await supabase
+    .from("community_portfolio_shares")
+    .select(
+      "id, title, is_hypothetical, revoked_at, created_at, show_holdings, show_allocations, show_sectors, show_risk_metrics, show_quantities, show_amounts, risk_snapshot",
+    )
+    .in("id", shareIds);
+  if (!shares || shares.length === 0) return map;
+
+  const visibleIds = shares.filter((s) => s.show_holdings).map((s) => s.id);
+  const holdingsByShare = new Map<
+    string,
+    PortfolioSharePreview["holdings"]
+  >();
+  if (visibleIds.length > 0) {
+    const { data: rows } = await supabase
+      .from("community_portfolio_share_holdings")
+      .select(
+        "share_id, symbol, name, sector, allocation_pct, quantity, invested_amount, position",
+      )
+      .in("share_id", visibleIds)
+      .order("position", { ascending: true });
+    const flagById = new Map(shares.map((s) => [s.id, s]));
+    for (const h of rows ?? []) {
+      const s = flagById.get(h.share_id);
+      const list = holdingsByShare.get(h.share_id) ?? [];
+      // Defense in depth: project each field to null unless its flag is on,
+      // mirroring the write-time gating in createShare and getShare().
+      list.push({
+        symbol: h.symbol,
+        name: h.name,
+        sector: s?.show_sectors ? h.sector : null,
+        allocationPct: s?.show_allocations ? h.allocation_pct : null,
+        quantity: s?.show_quantities ? h.quantity : null,
+        investedAmount: s?.show_amounts ? h.invested_amount : null,
+      });
+      holdingsByShare.set(h.share_id, list);
+    }
+  }
+
+  for (const s of shares) {
+    map.set(s.id, {
+      id: s.id,
+      title: s.title,
+      isHypothetical: s.is_hypothetical,
+      revoked: !!s.revoked_at,
+      createdAt: s.created_at,
+      showHoldings: s.show_holdings,
+      showAllocations: s.show_allocations,
+      showSectors: s.show_sectors,
+      showRiskMetrics: s.show_risk_metrics,
+      showQuantities: s.show_quantities,
+      showAmounts: s.show_amounts,
+      // Only surface the risk snapshot when the author disclosed it.
+      riskSnapshot: s.show_risk_metrics
+        ? ((s.risk_snapshot as ShareRiskSnapshot | null) ?? null)
+        : null,
+      // Holdings exist only when disclosed; already gated above.
+      holdings: s.show_holdings ? holdingsByShare.get(s.id) ?? [] : [],
+    });
+  }
   return map;
 }
 
@@ -186,13 +296,22 @@ async function hydratePosts(
   const allIds = allRows.map((r) => r.id);
   const authorIds = allRows.map((r) => r.author_id);
 
-  const [profiles, stocksRes, pollRes, viewer] = await Promise.all([
+  // Portfolio-share ids referenced by these posts (dedup → one batched fetch,
+  // no N+1). RLS still gates which shares/holdings are actually returned.
+  const shareIds = [
+    ...new Set(
+      allRows.map((r) => r.portfolio_share_id).filter((x): x is string => !!x),
+    ),
+  ];
+
+  const [profiles, stocksRes, pollRes, shareMap, viewer] = await Promise.all([
     loadProfiles(supabase, authorIds),
     supabase
       .from("community_post_stocks")
       .select("post_id, snapshot, stocks(symbol)")
       .in("post_id", allIds),
     supabase.from("community_polls").select("id, post_id, question, closes_at").in("post_id", allIds),
+    loadPortfolioShares(supabase, shareIds),
     loadViewerContext(supabase, viewerId, allIds),
   ]);
 
@@ -262,6 +381,9 @@ async function hydratePosts(
       commentCount: r.comment_count,
       repostCount: r.repost_count,
       portfolioShareId: r.portfolio_share_id,
+      portfolioShare: r.portfolio_share_id
+        ? shareMap.get(r.portfolio_share_id) ?? null
+        : null,
       stocks: stocksByPost.get(r.id) ?? [],
       repostOf:
         withRepost && r.repost_of
@@ -294,9 +416,11 @@ export async function getFeed(opts: {
   tab: FeedTab;
   viewerId: string | null;
   cursor?: string | null; // ISO created_at cursor for latest/following
+  /** Optional content-type filter, applied across every tab. */
+  postType?: CommunityPostType | null;
 }): Promise<{ posts: FeedPost[]; nextCursor: string | null }> {
   const supabase = await createClient();
-  const { tab, viewerId, cursor } = opts;
+  const { tab, viewerId, cursor, postType } = opts;
 
   if (tab === "latest") {
     let q = supabase
@@ -305,6 +429,7 @@ export async function getFeed(opts: {
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE + 1);
+    if (postType) q = q.eq("post_type", postType);
     if (cursor) q = q.lt("created_at", cursor);
     const { data } = await q;
     const rows = (data ?? []).slice(0, PAGE_SIZE);
@@ -328,6 +453,7 @@ export async function getFeed(opts: {
       .in("author_id", ids)
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE + 1);
+    if (postType) q = q.eq("post_type", postType);
     if (cursor) q = q.lt("created_at", cursor);
     const { data } = await q;
     const rows = (data ?? []).slice(0, PAGE_SIZE);
@@ -340,13 +466,15 @@ export async function getFeed(opts: {
   const windowStart = new Date(
     Date.now() - TRENDING_WINDOW_HOURS * 3_600_000,
   ).toISOString();
-  const { data } = await supabase
+  let rankedQ = supabase
     .from("community_posts")
     .select(POST_COLUMNS)
     .is("deleted_at", null)
     .gte("created_at", tab === "trending" ? windowStart : "1970-01-01")
     .order("created_at", { ascending: false })
     .limit(200);
+  if (postType) rankedQ = rankedQ.eq("post_type", postType);
+  const { data } = await rankedQ;
   let posts = await hydratePosts(supabase, data ?? [], viewerId);
 
   const rankable = (p: FeedPost): RankablePost => ({

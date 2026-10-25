@@ -16,6 +16,7 @@
     "fetch": "tsx scripts/fetch-market-data.ts",
     "refresh:beta": "tsx scripts/refresh-beta.ts",
     "score": "tsx scripts/compute-scores.ts",
+    "classify:caps": "tsx scripts/classify-caps.ts",
     "ingest": "tsx scripts/ingest-filings.ts",
     "eval:chat": "tsx --conditions=react-server scripts/eval-chat.ts",
     "smoke:groq": "tsx --conditions=react-server scripts/groq-smoke.ts",

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { createPostSchema, createCommentSchema, POST_BODY_MAX, POLL_OPTION_MAX } from "./schemas";
+import {
+  createPostSchema,
+  createCommentSchema,
+  createShareSchema,
+  POST_BODY_MAX,
+  POLL_OPTION_MAX,
+} from "./schemas";
 
 const future = () => new Date(Date.now() + 86_400_000).toISOString();
 
@@ -95,5 +101,53 @@ describe("createCommentSchema", () => {
     expect(
       createCommentSchema.safeParse({ postId: "11111111-1111-1111-1111-111111111111", body: "hi" }).success,
     ).toBe(true);
+  });
+});
+
+describe("createShareSchema", () => {
+  it("accepts a minimal real-portfolio share with conservative defaults", () => {
+    const r = createShareSchema.safeParse({
+      title: "My core",
+      sourcePortfolioId: "11111111-1111-1111-1111-111111111111",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      // Conservative defaults: holdings/allocations/sectors/risk on; the
+      // sensitive quantity/amount fields default OFF.
+      expect(r.data.showQuantities).toBe(false);
+      expect(r.data.showAmounts).toBe(false);
+      expect(r.data.showHoldings).toBe(true);
+      expect(r.data.visibility).toBe("public");
+      expect(r.data.isHypothetical).toBe(false);
+    }
+  });
+
+  it("requires a title", () => {
+    expect(createShareSchema.safeParse({ title: "" }).success).toBe(false);
+  });
+
+  it("accepts an optional feed-post body within the post length limit", () => {
+    expect(
+      createShareSchema.safeParse({ title: "x", postBody: "Please review my allocation." }).success,
+    ).toBe(true);
+    expect(
+      createShareSchema.safeParse({ title: "x", postBody: "y".repeat(POST_BODY_MAX + 1) }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a non-uuid source portfolio id (no arbitrary id injection)", () => {
+    expect(createShareSchema.safeParse({ title: "x", sourcePortfolioId: "not-a-uuid" }).success).toBe(
+      false,
+    );
+  });
+
+  it("clamps manual allocation percentages to 0–100", () => {
+    expect(
+      createShareSchema.safeParse({
+        title: "x",
+        isHypothetical: true,
+        manualHoldings: [{ symbol: "TCS", allocationPct: 150 }],
+      }).success,
+    ).toBe(false);
   });
 });

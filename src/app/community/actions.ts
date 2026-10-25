@@ -10,6 +10,7 @@ import {
   reportSchema,
   createShareSchema,
   createReviewSchema,
+  type CreateShareInput,
 } from "@/lib/community/schemas";
 import { extractHashtags, extractCashtags, extractMentions } from "@/lib/community/text";
 import { resolveSymbols, buildStockSnapshots } from "@/lib/community/stock-card";
@@ -536,19 +537,99 @@ export async function createShare(input: unknown): Promise<ActionResult<{ id: st
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid share." };
   }
+  const supabase = await createClient();
+  const built = await insertShare(supabase, user.id, parsed.data);
+  if (!built.ok) return { ok: false, error: built.error };
+
+  revalidatePath("/community");
+  return { ok: true, data: { id: built.shareId } };
+}
+
+/**
+ * Publish a portfolio share DIRECTLY to the community feed as a
+ * `portfolio_review` post, in one server action. This is the path the composer
+ * uses so a share actually appears in the feed (not just on its own page).
+ *
+ * Ordering is chosen to avoid orphans: the self-contained share + its holdings
+ * are written first; only then is the post created and linked. If the post
+ * insert fails, the share is rolled back (deleted) so we never leave a share
+ * with no post from this flow. A `portfolio_review` post always has a valid
+ * linked share, and the share's holdings always exist before the post is shown.
+ */
+export async function createSharePost(
+  input: unknown,
+): Promise<ActionResult<{ postId: string; shareId: string }>> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "Please sign in." };
+  const parsed = createShareSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid share." };
+  }
+  if (await tooManyRecent("community_posts", user.id, POST_RATE_LIMIT)) {
+    return { ok: false, error: "You're posting too fast. Try again in a bit." };
+  }
   const v = parsed.data;
   const supabase = await createClient();
 
-  // Build the holding snapshot + risk snapshot from either a real portfolio or
-  // manual (hypothetical) holdings.
+  const built = await insertShare(supabase, user.id, v);
+  if (!built.ok) return { ok: false, error: built.error };
+
+  const body = (v.postBody ?? "").trim() || v.title;
+  const { data: post, error: postError } = await supabase
+    .from("community_posts")
+    .insert({
+      author_id: user.id,
+      post_type: "portfolio_review",
+      body,
+      portfolio_share_id: built.shareId,
+      hashtags: extractHashtags(body),
+    })
+    .select("id")
+    .single();
+
+  if (postError || !post) {
+    // Roll back the share so this flow never leaves a share with no post.
+    await supabase
+      .from("community_portfolio_shares")
+      .delete()
+      .eq("id", built.shareId)
+      .eq("owner_id", user.id);
+    return { ok: false, error: "Could not publish the portfolio to the feed." };
+  }
+
+  // Mentions (best-effort), consistent with createPost.
+  const recipients = await resolveMentionRecipients(extractMentions(body));
+  for (const r of recipients) {
+    await notify({ recipientId: r, actorId: user.id, type: "mention", postId: post.id });
+  }
+
+  revalidatePath("/community");
+  return { ok: true, data: { postId: post.id, shareId: built.shareId } };
+}
+
+/**
+ * Shared internal: build the server-side snapshot from the user's OWN data and
+ * write the share (+ disclosed holdings). Returns the new share id. Never
+ * trusts client-supplied values — the snapshot is computed from authoritative
+ * records in buildShareRiskSnapshot (which is owner-scoped). Only the fields
+ * the author disclosed are persisted.
+ */
+async function insertShare(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  v: CreateShareInput,
+): Promise<{ ok: true; shareId: string } | { ok: false; error: string }> {
   const { holdings, riskSnapshot } = await buildShareRiskSnapshot({
-    userId: user.id,
+    userId,
     sourcePortfolioId: v.sourcePortfolioId ?? null,
     manualHoldings: v.manualHoldings ?? null,
     isHypothetical: v.isHypothetical,
   });
   if (holdings.length === 0) {
-    return { ok: false, error: "Add at least one holding (or select a non-empty portfolio)." };
+    return {
+      ok: false,
+      error: "Add at least one holding (or select a non-empty portfolio).",
+    };
   }
 
   const risk: ShareRiskSnapshot | null = v.showRiskMetrics ? riskSnapshot : null;
@@ -556,7 +637,7 @@ export async function createShare(input: unknown): Promise<ActionResult<{ id: st
   const { data: share, error } = await supabase
     .from("community_portfolio_shares")
     .insert({
-      owner_id: user.id,
+      owner_id: userId,
       source_portfolio_id: v.isHypothetical ? null : v.sourcePortfolioId ?? null,
       title: v.title,
       notes: v.notes ?? null,
@@ -578,24 +659,34 @@ export async function createShare(input: unknown): Promise<ActionResult<{ id: st
     .single();
   if (error || !share) return { ok: false, error: "Could not create the share." };
 
-  // Only store holding rows when the author disclosed holdings. Each field is
+  // Store holding rows only when the author disclosed holdings. Each field is
   // included ONLY if its disclosure flag is on — nulls otherwise.
   if (v.showHoldings) {
     const rows = holdings.map((h, i) => ({
       share_id: share.id,
       symbol: h.symbol,
-      name: v.showSectors ? h.name : h.name, // name is low-sensitivity
+      name: h.name, // name is low-sensitivity, always included with holdings
       sector: v.showSectors ? h.sector : null,
       allocation_pct: v.showAllocations ? h.allocationPct : null,
       quantity: v.showQuantities ? h.quantity : null,
       invested_amount: v.showAmounts ? h.investedAmount : null,
       position: i,
     }));
-    await supabase.from("community_portfolio_share_holdings").insert(rows);
+    const { error: holdingsError } = await supabase
+      .from("community_portfolio_share_holdings")
+      .insert(rows);
+    if (holdingsError) {
+      // Avoid a share with partial/missing holdings: roll it back.
+      await supabase
+        .from("community_portfolio_shares")
+        .delete()
+        .eq("id", share.id)
+        .eq("owner_id", userId);
+      return { ok: false, error: "Could not save the portfolio snapshot." };
+    }
   }
 
-  revalidatePath("/community");
-  return { ok: true, data: { id: share.id } };
+  return { ok: true, shareId: share.id };
 }
 
 /** Revoke a share (owner only). The snapshot rows are kept; it becomes hidden. */

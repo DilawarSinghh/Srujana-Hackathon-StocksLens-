@@ -1,18 +1,44 @@
 import Link from "next/link";
 import { Bookmark, Bell, Wallet, TrendingUp } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
+import { getDisplayName, getAvatarUrl } from "@/lib/user";
 import { getFeed, type FeedTab } from "@/lib/community/queries";
 import { getSidebarData } from "@/lib/community/sidebar";
-import { Composer } from "@/components/community/composer";
+import { listPortfolios } from "@/lib/data/portfolio";
+import type { CommunityPostType } from "@/types/database";
 import { FeedTabs } from "@/components/community/feed-tabs";
+import { FeedTypeFilter } from "@/components/community/feed-type-filter";
 import { FeedList } from "@/components/community/feed-list";
+import { CreatePostFab } from "@/components/community/create-post-fab";
 import { CommunityNotice } from "@/components/community/community-notice";
 
 export const dynamic = "force-dynamic";
 
 const VALID_TABS: FeedTab[] = ["foryou", "following", "trending", "latest"];
+const VALID_TYPES: CommunityPostType[] = [
+  "discussion",
+  "thesis",
+  "analysis",
+  "portfolio_review",
+  "poll",
+];
 
-function emptyFor(tab: FeedTab, signedIn: boolean): string {
+const TYPE_LABEL: Record<CommunityPostType, string> = {
+  discussion: "discussions",
+  thesis: "theses",
+  analysis: "analysis posts",
+  portfolio_review: "portfolio shares",
+  poll: "polls",
+};
+
+function emptyFor(
+  tab: FeedTab,
+  signedIn: boolean,
+  postType: CommunityPostType | null,
+): string {
+  if (postType) {
+    return `No ${TYPE_LABEL[postType]} here yet. Try another filter or tap + to create one.`;
+  }
   switch (tab) {
     case "following":
       return signedIn
@@ -21,26 +47,32 @@ function emptyFor(tab: FeedTab, signedIn: boolean): string {
     case "trending":
       return "Nothing trending in the last 48 hours yet. Be the first to spark a discussion.";
     default:
-      return "No posts yet. Start the conversation above.";
+      return "No posts yet. Tap + to start the conversation.";
   }
 }
 
 export default async function CommunityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; type?: string }>;
 }) {
-  const { tab: tabParam } = await searchParams;
+  const { tab: tabParam, type: typeParam } = await searchParams;
   const tab: FeedTab = VALID_TABS.includes(tabParam as FeedTab)
     ? (tabParam as FeedTab)
     : "foryou";
+  const postType: CommunityPostType | null = VALID_TYPES.includes(
+    typeParam as CommunityPostType,
+  )
+    ? (typeParam as CommunityPostType)
+    : null;
 
   const user = await getCurrentUser();
   const signedIn = !!user;
 
-  const [{ posts, nextCursor }, sidebar] = await Promise.all([
-    getFeed({ tab, viewerId: user?.id ?? null }),
+  const [{ posts, nextCursor }, sidebar, portfolios] = await Promise.all([
+    getFeed({ tab, viewerId: user?.id ?? null, postType }),
     getSidebarData(),
+    user ? listPortfolios(user.id) : Promise.resolve([]),
   ]);
 
   return (
@@ -48,8 +80,13 @@ export default async function CommunityPage({
       <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         {/* Central feed. */}
         <div className="min-w-0">
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Community</h1>
+          <div className="mb-4 flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold tracking-tight">Community</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Research, theses and portfolio reviews from StockLens investors.
+              </p>
+            </div>
             <div className="flex items-center gap-1">
               <Link
                 href="/community/notifications"
@@ -72,20 +109,20 @@ export default async function CommunityPage({
             <CommunityNotice />
           </div>
 
-          <div className="mb-4">
-            <Composer signedIn={signedIn} />
-          </div>
-
           <div className="overflow-hidden rounded-xl border border-border">
             <FeedTabs active={tab} />
+            <div className="border-b border-border">
+              <FeedTypeFilter active={postType ?? "all"} />
+            </div>
             <FeedList
-              key={tab}
+              key={`${tab}:${postType ?? "all"}`}
               tab={tab}
               initialPosts={posts}
               initialCursor={nextCursor}
               signedIn={signedIn}
               viewerId={user?.id ?? null}
-              emptyMessage={emptyFor(tab, signedIn)}
+              emptyMessage={emptyFor(tab, signedIn, postType)}
+              postType={postType}
             />
           </div>
         </div>
@@ -148,6 +185,13 @@ export default async function CommunityPage({
           </p>
         </aside>
       </div>
+
+      <CreatePostFab
+        signedIn={signedIn}
+        userName={getDisplayName(user)}
+        userAvatar={getAvatarUrl(user)}
+        portfolios={portfolios}
+      />
     </div>
   );
 }
