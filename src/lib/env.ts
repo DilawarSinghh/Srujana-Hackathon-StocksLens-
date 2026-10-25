@@ -39,6 +39,10 @@ const serverEnvSchema = z.object({
   GEMINI_EMBED_MODEL: z.string().min(1, "GEMINI_EMBED_MODEL is required"),
   EMBED_DIMENSIONS: z.coerce.number().int().positive().default(768),
   FINNHUB_API_KEY: z.string().optional(),
+  // Tapetide (https://developers.tapetide.com) — primary NSE/BSE market-data
+  // provider for the ingestion pipeline. Server/scripts only. When unset, the
+  // pipeline falls back to the optional Yahoo path.
+  TAPETIDE_API_KEY: z.string().optional(),
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required").optional(),
 
   // ---------------------------------------------------------------------------
@@ -114,6 +118,7 @@ export function getServerEnv(): ServerEnv {
     GEMINI_EMBED_MODEL: process.env.GEMINI_EMBED_MODEL,
     EMBED_DIMENSIONS: process.env.EMBED_DIMENSIONS,
     FINNHUB_API_KEY: process.env.FINNHUB_API_KEY,
+    TAPETIDE_API_KEY: process.env.TAPETIDE_API_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
     LLM_CHAT_CHAIN: process.env.LLM_CHAT_CHAIN,
     LLM_AUDIT_MODEL: process.env.LLM_AUDIT_MODEL,

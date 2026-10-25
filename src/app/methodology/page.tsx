@@ -22,9 +22,9 @@ import { Disclaimer } from "@/components/disclaimer";
 export const metadata: Metadata = {
   title: "Methodology",
   description:
-    "How FilingLens computes its transparent Fundamental Score: pillars, weights, sector-percentile method, red-flag caps, labels, data sources, and limitations.",
+    "How StockLens computes its transparent Fundamental Score: pillars, weights, sector-percentile method, red-flag caps, labels, data sources, and limitations.",
   openGraph: {
-    title: "Methodology — FilingLens",
+    title: "Methodology — StockLens",
     description:
       "How the transparent Fundamental Score is computed. Educational, not investment advice.",
     type: "article",
@@ -314,7 +314,7 @@ export default function MethodologyPage() {
 
       <Section title="What this is — and isn't">
         <p className="text-sm text-muted-foreground">
-          FilingLens is an <strong>educational research tool</strong>. It helps
+          StockLens is an <strong>educational research tool</strong>. It helps
           you read a company&apos;s fundamentals and filings in plain language.
           It is <strong>not</strong> investment advice, a recommendation, a
           rating, or a prediction. It never tells you what to do with your money,

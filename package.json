@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "seed": "tsx scripts/seed-universe.ts",
+    "import:stocks": "tsx scripts/import-stocks.ts",
     "fetch": "tsx scripts/fetch-market-data.ts",
     "score": "tsx scripts/compute-scores.ts",
     "ingest": "tsx scripts/ingest-filings.ts",

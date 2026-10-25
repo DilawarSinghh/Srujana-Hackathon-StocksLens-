@@ -10,7 +10,8 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
+    /* Restrained financial blue accent (replaces near-black primary). */
+    --primary: 221 70% 45%;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -22,45 +23,52 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 221 70% 45%;
     --radius: 0.5rem;
 
+    /* Elevated surface for cards/panels sitting above the page background. */
+    --surface: 210 40% 98.5%;
+
     /* Fundamental-score label colors (light). */
-    --strong: 142 71% 45%;
+    --strong: 142 71% 40%;
     --strong-foreground: 0 0% 100%;
-    --average: 38 92% 50%;
+    --average: 38 92% 45%;
     --average-foreground: 0 0% 100%;
-    --weak: 0 84% 60%;
+    --weak: 0 78% 52%;
     --weak-foreground: 0 0% 100%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
+    /* Deep slate-navy financial canvas. */
+    --background: 222 47% 7%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 222 44% 10%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 222 44% 10%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 213 85% 62%;
+    --primary-foreground: 222 47% 11%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
+    --muted: 217 33% 15%;
     --muted-foreground: 215 20.2% 65.1%;
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 217 33% 18%;
+    --input: 217 33% 18%;
+    --ring: 213 85% 62%;
+
+    /* Elevated surface for cards/panels sitting above the page background. */
+    --surface: 222 42% 12%;
 
     /* Fundamental-score label colors (dark). */
-    --strong: 142 60% 42%;
+    --strong: 142 60% 45%;
     --strong-foreground: 0 0% 100%;
-    --average: 38 85% 48%;
+    --average: 38 85% 52%;
     --average-foreground: 0 0% 100%;
-    --weak: 0 72% 52%;
+    --weak: 0 72% 58%;
     --weak-foreground: 0 0% 100%;
   }
 }
@@ -71,5 +79,33 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  /* Subtle radial wash for the landing hero. Respects the theme tokens. */
+  .hero-glow {
+    background:
+      radial-gradient(
+        60rem 30rem at 50% -10%,
+        hsl(var(--primary) / 0.12),
+        transparent 70%
+      );
+  }
+  /* Tabular numerals for financial figures. */
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Honor the user's reduced-motion preference everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

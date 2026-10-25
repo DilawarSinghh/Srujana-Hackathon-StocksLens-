@@ -6,7 +6,7 @@ import { getPublicEnv } from "@/lib/env";
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 /** Routes that require an authenticated user. */
-const PROTECTED_PREFIXES = ["/portfolio", "/documents"];
+const PROTECTED_PREFIXES = ["/dashboard", "/portfolio", "/documents"];
 
 /**
  * Refreshes the Supabase session on every request and enforces route

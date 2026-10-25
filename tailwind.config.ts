@@ -49,6 +49,7 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        surface: "hsl(var(--surface))",
         // Semantic colors for fundamental-score labels.
         strong: {
           DEFAULT: "hsl(var(--strong))",

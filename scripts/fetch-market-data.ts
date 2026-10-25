@@ -11,14 +11,13 @@
  * Never defaults or invents values: missing data is stored as NULL.
  */
 import { db } from "./lib/db";
-import { BENCHMARK_YAHOO_SYMBOL } from "@/config/universe";
+import { BENCHMARK_YAHOO_SYMBOL, UNIVERSE } from "@/config/universe";
+import type { AnnualFundamental, DailyBar } from "@/lib/data/yahoo";
 import {
-  getHistory,
-  getQuoteSummary,
-  getAnnualFundamentals,
-  type AnnualFundamental,
-  type DailyBar,
-} from "@/lib/data/yahoo";
+  getProvider,
+  ProviderRateLimitError,
+  type MarketDataProvider,
+} from "@/lib/data/providers";
 import {
   computeRoe,
   computeRoce,
@@ -36,39 +35,42 @@ import {
 } from "@/lib/data/metrics";
 import type { TablesInsert } from "@/types/database";
 
-const CRORE = 1e7; // 1 crore = 10,000,000
-const SLEEP_MS = 1000;
+// Pace between stocks to respect provider rate limits. Override with FETCH_PACE_MS.
+const SLEEP_MS = Number(process.env.FETCH_PACE_MS) || 2000;
 const HISTORY_YEARS = 5;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Convert a raw Yahoo annual fundamental (absolute INR) to INR crore.
- * Single documented conversion point. Per-share counts are NOT divided.
+ * Map a provider AnnualFundamental to a DB row. Monetary fields are ALREADY in
+ * INR crore per the MarketDataProvider contract (the provider adapter does any
+ * currency/unit conversion), so no division happens here. Per-share counts
+ * (shares_outstanding) are passed through. Missing fields stay null.
  */
-function toCrore(f: AnnualFundamental): TablesInsert<"fundamentals_annual"> {
-  const c = (v: number | null) => (v == null ? null : v / CRORE);
+function toFundamentalRow(
+  f: AnnualFundamental,
+): TablesInsert<"fundamentals_annual"> {
   return {
     stock_id: "", // filled by caller
     fiscal_year: f.fiscalYear,
-    revenue: c(f.revenue),
-    operating_profit: c(f.operatingProfit),
-    net_profit: c(f.netProfit),
-    total_debt: c(f.totalDebt),
-    total_equity: c(f.totalEquity),
-    total_assets: c(f.totalAssets),
-    current_liabilities: c(f.currentLiabilities),
-    operating_cash_flow: c(f.operatingCashFlow),
-    interest_expense: c(f.interestExpense),
-    ebit: c(f.ebit),
-    dividends_paid: c(f.dividendsPaid),
+    revenue: f.revenue,
+    operating_profit: f.operatingProfit,
+    net_profit: f.netProfit,
+    total_debt: f.totalDebt,
+    total_equity: f.totalEquity,
+    total_assets: f.totalAssets,
+    current_liabilities: f.currentLiabilities,
+    operating_cash_flow: f.operatingCashFlow,
+    interest_expense: f.interestExpense,
+    ebit: f.ebit,
+    dividends_paid: f.dividendsPaid,
     shares_outstanding: f.sharesOutstanding, // count, not money
-    current_assets: c(f.currentAssets),
-    gross_profit: c(f.grossProfit),
-    cost_of_revenue: c(f.costOfRevenue),
-    retained_earnings: c(f.retainedEarnings),
-    long_term_debt: c(f.longTermDebt),
-    total_liabilities: c(f.totalLiabilities),
+    current_assets: f.currentAssets,
+    gross_profit: f.grossProfit,
+    cost_of_revenue: f.costOfRevenue,
+    retained_earnings: f.retainedEarnings,
+    long_term_debt: f.longTermDebt,
+    total_liabilities: f.totalLiabilities,
   };
 }
 
@@ -148,17 +150,60 @@ function countNulls(m: TablesInsert<"stock_metrics">): number {
 async function main() {
   console.log("Fetching market data…\n");
 
+  // --- CLI args: controlled, quota-aware batching ---------------------------
+  // --only SYM,SYM  fetch exactly these symbols (highest priority)
+  // --limit N       cap the number of stocks fetched this run
+  // Default order prioritizes the documented large-cap universe
+  // (config/universe.ts, provenance: Nifty large-caps across sectors), then
+  // the rest alphabetically. This keeps a controlled initial batch within the
+  // provider's quota rather than fetching all 165 at once.
+  const argv = process.argv.slice(2);
+  const argVal = (flag: string): string | undefined => {
+    const i = argv.indexOf(flag);
+    return i >= 0 ? argv[i + 1] : undefined;
+  };
+  const onlyArg = argVal("--only");
+  const onlySet = onlyArg
+    ? new Set(onlyArg.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean))
+    : null;
+  const limitArg = Number(argVal("--limit"));
+  const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : null;
+
   // Active stocks.
-  const { data: stocks, error } = await db
+  const { data: allStocks, error } = await db
     .from("stocks")
     .select("id, symbol, yahoo_symbol")
     .eq("is_active", true)
     .order("symbol");
   if (error) throw new Error(`read stocks: ${error.message}`);
-  if (!stocks || stocks.length === 0) {
+  if (!allStocks || allStocks.length === 0) {
     console.log("No active stocks. Run `pnpm seed` first.");
     return;
   }
+
+  // Priority ranking: documented large-cap universe first, then the rest.
+  const priority = new Map(UNIVERSE.map((u, i) => [u.symbol, i]));
+  const ranked = [...allStocks].sort((a, b) => {
+    const pa = priority.has(a.symbol) ? priority.get(a.symbol)! : Number.MAX_SAFE_INTEGER;
+    const pb = priority.has(b.symbol) ? priority.get(b.symbol)! : Number.MAX_SAFE_INTEGER;
+    return pa !== pb ? pa - pb : a.symbol.localeCompare(b.symbol);
+  });
+
+  let stocks = onlySet
+    ? ranked.filter((s) => onlySet.has(s.symbol.toUpperCase()))
+    : ranked;
+  if (limit) stocks = stocks.slice(0, limit);
+
+  console.log(
+    `Selected ${stocks.length}/${allStocks.length} active stocks` +
+      (onlySet ? ` (--only)` : limit ? ` (--limit ${limit}, priority-ordered)` : ` (all)`) +
+      `\n`,
+  );
+
+  // Active market-data provider (Tapetide when TAPETIDE_API_KEY is set,
+  // otherwise the optional Yahoo fallback).
+  const provider: MarketDataProvider = getProvider();
+  console.log(`Provider: ${provider.name} (${provider.freshness})\n`);
 
   // Benchmark history (once) for beta.
   const since = new Date();
@@ -166,11 +211,15 @@ async function main() {
 
   let benchmarkReturns = new Map<string, number>();
   try {
-    const benchBars = await getHistory(BENCHMARK_YAHOO_SYMBOL, since);
+    // Prefer the provider's native benchmark (Tapetide: nifty-50 index levels);
+    // fall back to the Yahoo-symbol history path for providers without one.
+    const benchBars = provider.getBenchmarkHistory
+      ? await provider.getBenchmarkHistory(since)
+      : await provider.getHistory(BENCHMARK_YAHOO_SYMBOL, since);
     benchmarkReturns = dailyReturnMap(
       benchBars.map((b) => ({ date: b.date, close: b.close })),
     );
-    console.log(`✓ Benchmark ${BENCHMARK_YAHOO_SYMBOL}: ${benchBars.length} bars\n`);
+    console.log(`✓ Benchmark (Nifty 50): ${benchBars.length} bars\n`);
   } catch (e) {
     console.warn(`! Benchmark fetch failed — beta will be null. ${e}\n`);
   }
@@ -178,11 +227,10 @@ async function main() {
   const results: FetchResult[] = [];
 
   for (const stock of stocks) {
-    const yahoo = stock.yahoo_symbol;
-    if (!yahoo) {
-      results.push({ symbol: stock.symbol, status: "error", nullMetrics: 21, note: "no yahoo_symbol" });
-      continue;
-    }
+    // The provider adapter normalizes the symbol for its own API (Yahoo uses
+    // `yahoo_symbol` with ".NS"; Tapetide strips the suffix). Pass the stored
+    // yahoo_symbol when present, else the bare symbol.
+    const providerSymbol = stock.yahoo_symbol ?? stock.symbol;
 
     try {
       // Incremental history: start the day after the latest stored bar.
@@ -191,7 +239,7 @@ async function main() {
         ? new Date(new Date(last).getTime() + 86400000)
         : since;
 
-      const freshBars = await getHistory(yahoo, period1);
+      const freshBars = await provider.getHistory(providerSymbol, period1);
       await upsertHistory(stock.id, freshBars);
 
       // Full close series (from DB) for price metrics.
@@ -205,19 +253,22 @@ async function main() {
         .map((s) => s.close)
         .filter((c): c is number => typeof c === "number");
 
-      // Fundamentals -> crore.
-      const annual = await getAnnualFundamentals(yahoo);
+      // Fundamentals (already INR crore per the provider contract).
+      const annual = await provider.getAnnualFundamentals(providerSymbol);
       printFieldPresence(stock.symbol, annual);
       if (annual.length > 0) {
-        const rows = annual.map((f) => ({ ...toCrore(f), stock_id: stock.id }));
+        const rows = annual.map((f) => ({
+          ...toFundamentalRow(f),
+          stock_id: stock.id,
+        }));
         const { error: fErr } = await db
           .from("fundamentals_annual")
           .upsert(rows, { onConflict: "stock_id,fiscal_year" });
         if (fErr) throw new Error(`fundamentals upsert: ${fErr.message}`);
       }
 
-      // Quote summary for price/valuation metrics.
-      const summary = await getQuoteSummary(yahoo);
+      // Latest quote snapshot for price/valuation metrics.
+      const quote = await provider.getQuote(providerSymbol);
 
       // --- Compute metrics (code only) ---
       const latest = annual.at(-1) ?? null;
@@ -229,43 +280,34 @@ async function main() {
       const profitCagr3y = computeCagrFromSeries(profitSeries, 3);
       const profitCagr5y = computeCagrFromSeries(profitSeries, 5);
 
-      const pe = summary.summaryDetail?.trailingPE ?? null;
-      const pb =
-        summary.summaryDetail?.priceToBook ??
-        summary.defaultKeyStatistics?.priceToBook ??
-        null;
+      const pe = quote.pe;
+      const pb = quote.pb;
 
-      // Beta from aligned daily returns; fall back to Yahoo's beta if our
-      // series is too short. (Still code-computed when possible.)
+      // Beta from aligned daily returns (code-computed). No provider-beta
+      // fallback: when history is too short, beta stays null (not invented).
       const stockReturns = dailyReturnMap(series);
       const aligned = alignReturns(stockReturns, benchmarkReturns);
-      const computedBeta = computeBeta(aligned.stock, aligned.market);
-      const beta =
-        computedBeta ??
-        summary.summaryDetail?.beta ??
-        summary.defaultKeyStatistics?.beta ??
-        null;
+      const beta = computeBeta(aligned.stock, aligned.market);
 
-      const week52 = compute52Week(closes);
+      // Prefer the quote's 52-week range; fall back to the close series.
+      const week52FromSeries = compute52Week(closes);
+      const week52 = {
+        high: quote.week52High ?? week52FromSeries.high,
+        low: quote.week52Low ?? week52FromSeries.low,
+      };
 
       // 3y drawdown: last ~3*252 closes.
       const dd3y = computeMaxDrawdown(closes.slice(-(3 * 252)));
 
-      // Dividend yield to percent (Yahoo gives a fraction).
-      const divFrac = summary.summaryDetail?.dividendYield ?? null;
-      const dividendYield = divFrac == null ? null : divFrac * 100;
+      // Dividend yield (already a percent per the provider contract).
+      const dividendYield = quote.dividendYield;
 
       const metrics: TablesInsert<"stock_metrics"> = {
         stock_id: stock.id,
         as_of: new Date().toISOString().slice(0, 10),
-        price:
-          summary.price?.regularMarketPrice ??
-          summary.financialData?.currentPrice ??
-          (closes.at(-1) ?? null),
-        prev_close: summary.price?.regularMarketPreviousClose ?? null,
-        market_cap: summary.price?.marketCap
-          ? summary.price.marketCap / CRORE
-          : null,
+        price: quote.price ?? (closes.at(-1) ?? null),
+        prev_close: quote.prevClose,
+        market_cap: quote.marketCapCrore,
         pe,
         pb,
         roe: computeRoe(latest?.netProfit ?? null, latest?.totalEquity ?? null),
@@ -321,6 +363,18 @@ async function main() {
         note: (e as Error).message,
       });
       console.error(`✗ ${stock.symbol}: ${(e as Error).message}`);
+
+      // If the provider is rate-limiting us, STOP the run rather than hammering
+      // the remaining symbols (which only worsens throttling). Existing valid
+      // data is untouched because the failed stock was never upserted.
+      if (e instanceof ProviderRateLimitError) {
+        console.error(
+          `\n✗ Stopping: the market-data provider is rate-limiting (HTTP 429). ` +
+            `No data was overwritten. Re-run \`pnpm fetch\` after the quota ` +
+            `window resets, or with a higher-tier plan.`,
+        );
+        break;
+      }
     }
 
     await sleep(SLEEP_MS);

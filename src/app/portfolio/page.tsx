@@ -125,14 +125,14 @@ export default async function PortfolioPage() {
 
   return (
     <div className="container flex flex-col gap-6 py-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface/50 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Portfolio</h1>
           <p className="text-sm text-muted-foreground">
             {getDisplayName(user)}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-col items-start gap-2 sm:items-end">
           <DataFreshness lastUpdated={portfolio?.lastUpdated ?? null} />
           <RiskReportButton base={riskReportBase} />
         </div>

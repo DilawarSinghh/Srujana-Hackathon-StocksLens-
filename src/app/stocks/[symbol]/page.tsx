@@ -40,8 +40,8 @@ export async function generateMetadata({
   return {
     title,
     description,
-    openGraph: { title: `${title} — FilingLens`, description, type: "article" },
-    twitter: { card: "summary", title: `${title} — FilingLens`, description },
+    openGraph: { title: `${title} — StockLens`, description, type: "article" },
+    twitter: { card: "summary", title: `${title} — StockLens`, description },
   };
 }
 
@@ -59,45 +59,47 @@ export default async function StockPage({ params }: StockPageProps) {
     <TooltipProvider delayDuration={200}>
       <div className="container py-8">
         {/* Header */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-2xl font-bold tracking-tight">{stock.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {stock.symbol}
-              {stock.exchange ? ` · ${stock.exchange}` : ""}
-              {stock.sector ? ` · ${stock.sector}` : ""}
-            </p>
-            <div className="mt-1 flex items-center gap-3">
-              <span className="text-xl font-semibold tabular-nums">
-                {formatPrice(metrics?.price)}
-              </span>
-              {change != null ? (
-                <span
-                  className={cn(
-                    "flex items-center gap-0.5 text-sm font-medium tabular-nums",
-                    change >= 0 ? "text-strong" : "text-weak",
-                  )}
-                >
-                  {change >= 0 ? (
-                    <TrendingUp className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  {change >= 0 ? "+" : ""}
-                  {change.toFixed(2)}%
+        <div className="rounded-xl border border-border bg-surface/50 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-col gap-1">
+              <h1 className="text-2xl font-bold tracking-tight">{stock.name}</h1>
+              <p className="text-sm text-muted-foreground">
+                {stock.symbol}
+                {stock.exchange ? ` · ${stock.exchange}` : ""}
+                {stock.sector ? ` · ${stock.sector}` : ""}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <span className="text-2xl font-semibold nums">
+                  {formatPrice(metrics?.price)}
                 </span>
-              ) : null}
-              <ScoreBadge score={score?.total_score ?? null} label={score?.label ?? null} />
+                {change != null ? (
+                  <span
+                    className={cn(
+                      "flex items-center gap-0.5 text-sm font-medium nums",
+                      change >= 0 ? "text-strong" : "text-weak",
+                    )}
+                  >
+                    {change >= 0 ? (
+                      <TrendingUp className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <TrendingDown className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {change >= 0 ? "+" : ""}
+                    {change.toFixed(2)}%
+                  </span>
+                ) : null}
+                <ScoreBadge score={score?.total_score ?? null} label={score?.label ?? null} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <BrokerDropdown />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <BrokerDropdown />
-          </div>
-        </div>
 
-        <p className="mt-1 text-xs text-muted-foreground">
-          You place orders on your broker. We never handle your money.
-        </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            You place orders on your broker. We never handle your money.
+          </p>
+        </div>
 
         {/* Main grid: content + sticky chat */}
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">

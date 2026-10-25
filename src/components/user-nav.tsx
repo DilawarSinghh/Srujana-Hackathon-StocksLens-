@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { LogOut, User as UserIcon, Wallet } from "lucide-react";
+import { LayoutDashboard, LogOut, User as UserIcon, Wallet } from "lucide-react";
 import { useUser } from "@/hooks/use-user";
 import { createClient } from "@/lib/supabase/client";
 import { getDisplayName, getAvatarUrl } from "@/lib/user";
@@ -76,6 +76,12 @@ export function UserNav() {
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuLabel className="truncate">{name}</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/dashboard">
+            <LayoutDashboard className="mr-2 h-4 w-4" aria-hidden="true" />
+            Dashboard
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/portfolio">
             <Wallet className="mr-2 h-4 w-4" aria-hidden="true" />

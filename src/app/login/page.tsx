@@ -38,7 +38,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     <div className="container flex min-h-[70vh] items-center justify-center py-10">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle>Sign in to FilingLens</CardTitle>
+          <CardTitle>Sign in to StockLens</CardTitle>
           <CardDescription>
             Sign in to chat with filings and build a portfolio.
           </CardDescription>
