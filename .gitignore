@@ -52,3 +52,5 @@ next-env.d.ts
 /playwright-report
 /blob-report
 /playwright/.cache
+# local-only authenticated test session (real tokens — never commit)
+/e2e/.auth

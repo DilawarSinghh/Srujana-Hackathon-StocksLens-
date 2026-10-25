@@ -18,7 +18,8 @@
     "score": "tsx scripts/compute-scores.ts",
     "ingest": "tsx scripts/ingest-filings.ts",
     "eval:chat": "tsx --conditions=react-server scripts/eval-chat.ts",
-    "smoke:groq": "tsx --conditions=react-server scripts/groq-smoke.ts"
+    "smoke:groq": "tsx --conditions=react-server scripts/groq-smoke.ts",
+    "e2e:cleanup": "tsx e2e/auth/cleanup.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^1.2.3",
