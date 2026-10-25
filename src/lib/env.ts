@@ -40,6 +40,39 @@ const serverEnvSchema = z.object({
   EMBED_DIMENSIONS: z.coerce.number().int().positive().default(768),
   FINNHUB_API_KEY: z.string().optional(),
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required").optional(),
+
+  // ---------------------------------------------------------------------------
+  // Multi-provider chat chain (Part 1). Optional; when LLM_CHAT_CHAIN is unset
+  // the code falls back to the Gemini-only chain above (backward compatible).
+  // ---------------------------------------------------------------------------
+  // Ordered, comma-separated `provider:model` entries tried in order, e.g.
+  // "groq:<model-id>,huggingface:<model-id>,google:<model-id>". A provider whose
+  // API key is missing is skipped silently.
+  LLM_CHAT_CHAIN: z.string().optional(),
+  // Optional `provider:model` override for the cheap fact-audit call. Falls back
+  // to the head of the resolved chat chain when unset.
+  LLM_AUDIT_MODEL: z.string().optional(),
+  // Provider API keys. A missing key simply disables that provider.
+  GROQ_API_KEY: z.string().optional(),
+  HUGGINGFACE_API_KEY: z.string().optional(),
+  // OpenAI-compatible router base URL for Hugging Face (e.g.
+  // "https://router.huggingface.co/v1"). Required only if a huggingface: entry
+  // is used in LLM_CHAT_CHAIN.
+  HUGGINGFACE_BASE_URL: z.string().url().optional(),
+
+  // ---------------------------------------------------------------------------
+  // Token budget (Part 1). Keep free-tier tokens-per-minute within limits.
+  // ---------------------------------------------------------------------------
+  RAG_TOP_K: z.coerce.number().int().positive().default(5),
+  RAG_MAX_CONTEXT_TOKENS: z.coerce.number().int().positive().default(6000),
+
+  // ---------------------------------------------------------------------------
+  // Web research mode (Part 2). Optional; a missing search key disables the
+  // Web tab with a friendly message.
+  // ---------------------------------------------------------------------------
+  SEARCH_PROVIDER: z.enum(["tavily", "brave"]).optional(),
+  TAVILY_API_KEY: z.string().optional(),
+  BRAVE_SEARCH_API_KEY: z.string().optional(),
 });
 
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
@@ -82,6 +115,16 @@ export function getServerEnv(): ServerEnv {
     EMBED_DIMENSIONS: process.env.EMBED_DIMENSIONS,
     FINNHUB_API_KEY: process.env.FINNHUB_API_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
+    LLM_CHAT_CHAIN: process.env.LLM_CHAT_CHAIN,
+    LLM_AUDIT_MODEL: process.env.LLM_AUDIT_MODEL,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
+    HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
+    HUGGINGFACE_BASE_URL: process.env.HUGGINGFACE_BASE_URL,
+    RAG_TOP_K: process.env.RAG_TOP_K,
+    RAG_MAX_CONTEXT_TOKENS: process.env.RAG_MAX_CONTEXT_TOKENS,
+    SEARCH_PROVIDER: process.env.SEARCH_PROVIDER,
+    TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+    BRAVE_SEARCH_API_KEY: process.env.BRAVE_SEARCH_API_KEY,
   });
   if (!parsed.success) formatError("Server", parsed.error);
   _serverEnv = parsed.data;

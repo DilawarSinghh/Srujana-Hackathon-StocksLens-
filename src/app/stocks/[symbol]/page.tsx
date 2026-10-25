@@ -21,6 +21,7 @@ import { ScoreBreakdown } from "@/components/score-breakdown";
 import { RedFlagsBox } from "@/components/red-flags-box";
 import { PeerTable } from "@/components/peer-table";
 import { ChatSlot } from "@/components/chat/chat-slot";
+import { isSearchEnabled } from "@/lib/web/search";
 
 export const revalidate = 900;
 
@@ -51,6 +52,8 @@ export default async function StockPage({ params }: StockPageProps) {
 
   const { stock, metrics, score, fundamentals, governance, prices, peers, redFlags, explanations, lastUpdated } = detail;
   const change = dayChangePercent(metrics?.price, metrics?.prev_close);
+  // Whether the Web Research tab is available (a search provider is configured).
+  const webEnabled = isSearchEnabled();
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -174,7 +177,7 @@ export default async function StockPage({ params }: StockPageProps) {
 
           {/* Chat slot: sticky on desktop, floating sheet on mobile */}
           <aside className="lg:col-span-1">
-            <ChatSlot symbol={stock.symbol} name={stock.name} />
+            <ChatSlot symbol={stock.symbol} name={stock.name} webEnabled={webEnabled} />
           </aside>
         </div>
 

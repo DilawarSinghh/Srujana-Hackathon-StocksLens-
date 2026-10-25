@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { generateWithFallback } from "@/lib/rag/model-chain";
+import { resolveAuditModel } from "@/lib/llm/providers";
 import type { RetrievedChunk } from "@/lib/rag/retrieve";
 import type { AuditResult, AuditClaim } from "@/types/database";
 
@@ -73,12 +74,16 @@ ${answer}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AUDIT_TIMEOUT_MS);
   try {
-    const { text } = await generateWithFallback({
-      prompt,
-      temperature: 0,
-      maxTokens: 2000,
-      abortSignal: controller.signal,
-    });
+    const { text } = await generateWithFallback(
+      {
+        prompt,
+        temperature: 0,
+        // Small output cap: the audit only emits short verbatim sentences.
+        maxTokens: 1200,
+        abortSignal: controller.signal,
+      },
+      resolveAuditModel(),
+    );
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return null;

@@ -259,9 +259,47 @@ export default function MethodologyPage() {
         </p>
       </Section>
 
+      <Section title="AI chat and web research">
+        <p className="mb-3 text-sm text-muted-foreground">
+          The stock-page assistant has two separate modes. The AI never
+          calculates scores or ratios, never invents data or sources, and never
+          tells you to buy, sell or hold.
+        </p>
+        <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+          <li>
+            <strong>Filings chat</strong> answers only from this company&apos;s
+            official filings, cites every claim to a source excerpt, and runs a
+            fact audit over the answer. If the filings don&apos;t cover your
+            question, it says so.
+          </li>
+          <li>
+            <strong>Web research</strong> is a separate, clearly-labeled mode
+            that looks up context from a short allowlist of reputable sources
+            (official exchanges and regulators, plus a few financial news and
+            data sites). Its answers are <strong>unverified against
+            filings</strong> — a permanent banner says so — and web text is
+            treated as untrusted, so instructions hidden inside a page are
+            ignored. Anything from outside the allowlist is shown only as an
+            unverified link and is never used to write the answer.
+          </li>
+          <li>
+            Answers may be produced by one of several interchangeable AI
+            providers. Open models can follow the citation and formatting rules
+            <strong> less reliably</strong> than others; a deterministic
+            post-processor enforces the hard rules (disclaimer, removing stray
+            reasoning, and dropping citations to sources that were not provided).
+          </li>
+        </ul>
+      </Section>
+
       <Section title="Known limitations">
         <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
           <li>Prices are delayed, not real-time.</li>
+          <li>
+            Web-research answers come from unverified web sources and may be
+            incomplete, out of date, or conflicting; they are not a substitute
+            for the official filings.
+          </li>
           <li>
             The demo universe is small and chosen for sector diversity, not as a
             curated list.

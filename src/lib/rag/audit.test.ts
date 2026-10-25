@@ -5,6 +5,12 @@ vi.mock("./model-chain", () => ({
   generateWithFallback: (...args: unknown[]) => generateWithFallback(...args),
 }));
 
+// The audit picks a preferred model via resolveAuditModel(); stub it so the
+// test does not touch real env/provider resolution.
+vi.mock("@/lib/llm/providers", () => ({
+  resolveAuditModel: () => null,
+}));
+
 import { auditAnswer } from "./audit";
 import type { RetrievedChunk } from "./retrieve";
 

@@ -18,7 +18,9 @@ stress test.
 - **lightweight-charts** (price charts), **recharts** (other charts)
 - **Supabase** (Postgres, pgvector, Auth, Storage, RLS)
 - Google OAuth via Supabase Auth with `@supabase/ssr`
-- **Vercel AI SDK** (`ai` + `@ai-sdk/google`) with Gemini
+- **Vercel AI SDK** (`ai`) with a provider-agnostic chat chain across Groq
+  (`@ai-sdk/groq`), Hugging Face (`@ai-sdk/openai-compatible`) and Gemini
+  (`@ai-sdk/google`); embeddings stay on Gemini
 - **yahoo-finance2** for NSE/BSE market data
 - **zod** for all validation, **vitest** for tests, **tsx** for scripts
 - Package manager: **pnpm**. Hosting: Vercel. Scheduled jobs: GitHub Actions.
@@ -54,11 +56,59 @@ See `.env.example`. Validated by zod in `src/lib/env.ts`:
 | `SUPABASE_SERVICE_ROLE_KEY` | server/scripts only | Never ship to the browser |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | server | Gemini key |
 | `GEMINI_CHAT_MODEL` | server | e.g. `gemini-2.0-flash` (final fallback) |
-| `GEMINI_CHAT_MODELS` | server | optional, comma-separated ordered fallback chain, e.g. `gemini-2.5-flash,gemini-2.0-flash` |
-| `GEMINI_EMBED_MODEL` | server | e.g. `text-embedding-004` |
+| `GEMINI_CHAT_MODELS` | server | optional, comma-separated ordered Gemini fallback chain; used only when `LLM_CHAT_CHAIN` is unset |
+| `GEMINI_EMBED_MODEL` | server | e.g. `text-embedding-004` (embeddings stay on Gemini) |
 | `EMBED_DIMENSIONS` | server | `768` |
+| `LLM_CHAT_CHAIN` | server | optional multi-provider chain, e.g. `groq:<model-id>,huggingface:<model-id>,google:<model-id>` |
+| `LLM_AUDIT_MODEL` | server | optional `provider:model` for the fact-audit call |
+| `GROQ_API_KEY` | server | Groq key ([console.groq.com](https://console.groq.com)) |
+| `HUGGINGFACE_API_KEY` | server | HF token ([huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)) |
+| `HUGGINGFACE_BASE_URL` | server | OpenAI-compatible router URL, e.g. `https://router.huggingface.co/v1` |
+| `RAG_TOP_K` | server | chunks per answer (default `5`) |
+| `RAG_MAX_CONTEXT_TOKENS` | server | approx context budget in tokens (default `6000`) |
+| `SEARCH_PROVIDER` | server | `tavily` or `brave` (enables the Web Research tab) |
+| `TAVILY_API_KEY` | server | Tavily key ([app.tavily.com](https://app.tavily.com)) |
+| `BRAVE_SEARCH_API_KEY` | server | Brave Search key ([brave.com/search/api](https://brave.com/search/api/)) |
 | `FINNHUB_API_KEY` | server | optional |
 | `CRON_SECRET` | server | protects scheduled endpoints |
+
+### Switching AI providers
+
+The chat model chain is provider-agnostic (Vercel AI SDK). Set `LLM_CHAT_CHAIN`
+to an ordered, comma-separated list of `provider:model` entries; the chain tries
+each in order and falls through to the next on rate-limits (incl.
+tokens-per-minute), 5xx, or timeouts (honoring `Retry-After`). A provider whose
+API key is missing is skipped silently. Supported providers: `groq`,
+`huggingface` (via its OpenAI-compatible router at `HUGGINGFACE_BASE_URL`), and
+`google`.
+
+Placeholder examples (replace `<model-id>` with a model your account can use):
+
+```bash
+# Groq first, Hugging Face second, Gemini as the safety net
+LLM_CHAT_CHAIN=groq:<model-id>,huggingface:<model-id>,google:<model-id>
+
+# Gemini only (equivalent to leaving LLM_CHAT_CHAIN unset)
+LLM_CHAT_CHAIN=google:gemini-2.5-flash,google:gemini-2.0-flash
+```
+
+When `LLM_CHAT_CHAIN` is unset the app uses the legacy Gemini-only chain
+(`GEMINI_CHAT_MODELS` + `GEMINI_CHAT_MODEL`), so existing deployments keep
+working unchanged.
+
+> **Note:** free-tier limits (requests/day and tokens-per-minute) are usually
+> **per organization**, not per key, and change frequently. Check each
+> provider's console for current limits before relying on them. Open models may
+> follow the citation and formatting rules less reliably than Gemini; a
+> deterministic post-processor enforces the hard rules (disclaimer, stray
+> `<think>` removal, dropping citations to sources that were not provided).
+
+**Embeddings stay on Gemini** (`GEMINI_EMBED_MODEL`, 768 dims). The pgvector
+column is sized for 768-dim Gemini vectors and all stored embeddings were
+produced by that model, so switching embedding providers would require
+re-embedding every chunk and resizing the column. The embeddings call is wrapped
+behind a provider interface in `src/lib/llm/embeddings.ts` so a future switch is
+a one-line change.
 
 ## Scripts
 
@@ -117,6 +167,8 @@ SQL migrations live in `supabase/migrations/` and are numbered in apply order:
 | `0007_quality_and_audit.sql` | extra `fundamentals_annual` columns (current_assets, gross_profit, cost_of_revenue, retained_earnings, long_term_debt, total_liabilities); `stock_metrics` quality columns (piotroski_score, piotroski_available_criteria, altman_z, altman_zone, dividend_payout_ratio, dividend_safety); `chat_messages.audit` jsonb |
 | `0008_user_documents.sql` | `user_documents`, `user_document_chunks` (HNSW), owner-only RLS, `match_user_document_chunks()`, private `user-docs` Storage bucket with per-user folder policies |
 | `0009_portfolio_profile.sql` | `portfolio_profiles` (risk tolerance, horizon, near-term liquidity need) with owner-only RLS; drives goal-conflict warnings |
+| `0010_web_cache.sql` | `web_cache` (hash-keyed search/page cache) with RLS enabled and **no client policies** (service role only) |
+| `0011_chat_mode.sql` | adds `chat_messages.mode` (`filings`/`web`/`portfolio`, default `filings`) + composite index; history queries filter by mode |
 
 **Run the migrations** (choose one):
 
@@ -440,6 +492,46 @@ bottom sheet** on mobile.
 
 The client reads the Vercel AI data-stream (`0:"token"` parts), so both the
 LLM path and the deterministic refusal/fallback path render identically.
+
+## Chat modes & Web Research
+
+The stock-page chat panel has two tabs:
+
+- **Filings** (default): grounded answers from this company's official filings,
+  with `[S1]` citations, the fact audit, and the standard disclaimer. Unchanged.
+- **Web research** (`POST /api/research`): a **separate, clearly-labeled** mode
+  that looks up context on the web. It shows a permanent banner — *"Web sources,
+  not verified filings. Educational only."* — and answers are **unverified
+  against filings**.
+
+Web Research is deliberately constrained:
+
+- **Domain allowlist** (`src/config/web-sources.ts`, editable): official Indian
+  market/regulatory sources (BSE, NSE, SEBI, RBI, Income Tax, MCA) plus a short
+  list of reputable financial media (Reuters, Economic Times, Livemint, Business
+  Standard, Moneycontrol, Screener), and the company's investor-relations domain
+  when available. Results from any other domain are shown only as unverified
+  links and are **never fed to the model**.
+- **SSRF-safe page reader** (`src/lib/web/fetch-page.ts`): HTTPS only,
+  allowlisted hosts only, 8s timeout, 1 MB cap, html/text only, ~6k chars per
+  page, redirects followed manually and re-validated, and every host resolved
+  and rejected if it maps to loopback / link-local / RFC1918 / cloud-metadata
+  addresses.
+- **Same safety posture**: login + zod validation, the intent guard (advice
+  questions get the standard refusal), the output guard (English and Hinglish),
+  the post-processor, and a separate rate limit (10 web questions/user/hour).
+  Web text is treated as untrusted — instructions embedded in a page are ignored
+  (covered by a prompt-injection test fixture), and any URL in the answer that
+  was not in the provided sources is removed.
+- **Cache** (`web_cache`, migration `0010`, RLS on with **no client policies** —
+  service role only): search results 30 min, page text 6 h.
+- Citations render as **source chips** showing the domain and retrieved date,
+  linking to the original page in a new tab (`rel="noopener noreferrer"`).
+- The tab is **disabled with a friendly message** when no search provider
+  (`SEARCH_PROVIDER` + key) is configured.
+
+`chat_messages.mode` (migration `0011`, one of `filings | web | portfolio`)
+separates the transcripts; history queries filter by mode.
 
 ## Portfolio (Phase 10)
 
