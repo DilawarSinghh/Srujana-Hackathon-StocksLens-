@@ -5,6 +5,7 @@ import { retrieveUserDocChunks } from "@/lib/rag/retrieve-user-doc";
 import { SYSTEM_PROMPT, renderSources } from "@/lib/rag/prompt";
 import { streamWithFallback, AllModelsFailedError } from "@/lib/rag/model-chain";
 import { isAdviceSeeking, buildRefusal, sanitizeOutput } from "@/lib/rag/guardrails";
+import { isRateLimited } from "@/lib/rag/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -81,6 +82,22 @@ export async function POST(
     return NextResponse.json(
       { error: "This document is still processing." },
       { status: 409 },
+    );
+  }
+
+  // Shared hourly AI budget (same counter as stock chat / debate / explainer),
+  // enforced BEFORE any Groq call so a rate-limited request never invokes the
+  // model. Uses the user-scoped client; the user can read their own
+  // chat_messages count under RLS.
+  if (await isRateLimited(supabase, user.id)) {
+    return NextResponse.json(
+      {
+        error:
+          "You've reached the hourly message limit. Please try again a little later.",
+        code: "rate_limited",
+        retryable: true,
+      },
+      { status: 429, headers: { "Retry-After": "3600" } },
     );
   }
 

@@ -42,6 +42,19 @@ async function tooManyRecent(
   return (count ?? 0) >= limit;
 }
 
+/**
+ * Whether the current user is a community moderator. Uses the same SECURITY
+ * DEFINER DB function the RLS policies use, so the answer here matches what the
+ * database will actually permit. Fails closed (false) on any error.
+ */
+async function isCommunityModerator(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("is_community_moderator");
+  if (error) return false;
+  return data === true;
+}
+
 /** Resolve @handles to recipient user ids for mention notifications. */
 async function resolveMentionRecipients(handles: string[]): Promise<string[]> {
   if (handles.length === 0) return [];
@@ -148,15 +161,22 @@ export async function createPost(input: unknown): Promise<ActionResult<{ id: str
   return { ok: true, data: { id: post.id } };
 }
 
-/** Soft-delete a post (author or moderator via RLS). */
+/** Soft-delete a post (author, or a moderator). */
 export async function deletePost(postId: string): Promise<ActionResult> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Please sign in." };
   const supabase = await createClient();
-  const { error } = await supabase
+
+  // Author-scoped by default (defense in depth on top of RLS). Moderators may
+  // delete any post, so the author filter is skipped only for them.
+  const isModerator = await isCommunityModerator(supabase);
+  let query = supabase
     .from("community_posts")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", postId);
+  if (!isModerator) query = query.eq("author_id", user.id);
+
+  const { error } = await query;
   if (error) return { ok: false, error: "Could not delete the post." };
   revalidatePath("/community");
   return { ok: true };
@@ -386,10 +406,17 @@ export async function deleteComment(commentId: string): Promise<ActionResult> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Please sign in." };
   const supabase = await createClient();
-  const { error } = await supabase
+
+  // Author-scoped by default (defense in depth on top of RLS); moderators may
+  // delete any comment, so the author filter is skipped only for them.
+  const isModerator = await isCommunityModerator(supabase);
+  let query = supabase
     .from("community_comments")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", commentId);
+  if (!isModerator) query = query.eq("author_id", user.id);
+
+  const { error } = await query;
   if (error) return { ok: false, error: "Could not delete the comment." };
   return { ok: true };
 }
