@@ -31,9 +31,19 @@ test("public landing renders the public top navigation", async ({ page }) => {
   await page.goto("/");
   // The primary (desktop) nav landmark is present on public routes.
   await expect(page.getByRole("navigation", { name: /Primary/i })).toBeAttached();
-  // Explore link points home.
+  // Explore now points at the dedicated Stock Explorer route.
   const explore = page.getByRole("link", { name: /^Explore$/ }).first();
-  await expect(explore).toHaveAttribute("href", "/");
+  await expect(explore).toHaveAttribute("href", "/stocks");
+});
+
+// --- Stock Explorer is a private route, separate from the landing page --
+test("signed-out visitor to /stocks is redirected to /login (not the landing page)", async ({
+  page,
+}) => {
+  await page.goto("/stocks");
+  await page.waitForURL(/\/login/);
+  expect(page.url()).toContain("/login");
+  expect(decodeURIComponent(page.url())).toContain("next=/stocks");
 });
 
 // --- 2-4. Protected routes redirect signed-out users to /login ----------

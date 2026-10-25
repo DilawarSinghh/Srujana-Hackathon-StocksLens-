@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 // Exchanges an OAuth code at request time; never statically evaluated.
 export const dynamic = "force-dynamic";
 
 /**
  * OAuth callback. Exchanges the `code` for a session, then redirects to the
- * `next` param (must be a local path) or "/". On error, redirects to
- * /login?error=...
+ * `next` param (must be a safe, same-origin local path) or "/dashboard". On
+ * error, redirects to /login?error=...
  */
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const oauthError = searchParams.get("error_description") ?? searchParams.get("error");
 
-  const nextParam = searchParams.get("next");
-  const next = nextParam && nextParam.startsWith("/") ? nextParam : "/";
+  const next = safeNextPath(searchParams.get("next"));
 
   if (oauthError) {
     return NextResponse.redirect(

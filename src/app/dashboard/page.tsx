@@ -133,8 +133,8 @@ export default async function DashboardPage() {
               body="Concentration, correlation, scenarios, and goal-conflict checks."
             />
             <ToolCard
-              href="/"
-              title="Explore stocks"
+              href="/stocks"
+              title="Stock Explorer"
               body="Browse fundamental scores by category and sector."
             />
             <ToolCard
@@ -222,7 +222,7 @@ function EmptyDashboard() {
         <SearchBar className="w-full max-w-md" />
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Button asChild variant="outline">
-            <Link href="/">Explore stocks</Link>
+            <Link href="/stocks">Explore stocks</Link>
           </Button>
           <Button asChild variant="outline">
             <Link href="/debate">Try an AI Debate</Link>

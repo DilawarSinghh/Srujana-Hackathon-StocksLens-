@@ -45,12 +45,18 @@ describe("isAppShellPath", () => {
     expect(isAppShellPath("/community/post/abc")).toBe(true);
   });
 
+  it("returns true for the Stock Explorer (exact) but not its detail sub-paths", () => {
+    // The explorer is authenticated and shell-wrapped.
+    expect(isAppShellPath("/stocks")).toBe(true);
+    // Public stock detail pages keep the top-header chrome.
+    expect(isAppShellPath("/stocks/RELIANCE")).toBe(false);
+  });
+
   it("returns false for public / marketing routes", () => {
-    // Stock Explorer root and marketing pages keep the top-header chrome.
+    // The landing page and marketing pages keep the top-header chrome.
     expect(isAppShellPath("/")).toBe(false);
     expect(isAppShellPath("/methodology")).toBe(false);
     expect(isAppShellPath("/login")).toBe(false);
-    expect(isAppShellPath("/stocks/RELIANCE")).toBe(false);
   });
 
   it("does not match a prefix that is only a partial segment", () => {
@@ -66,13 +72,15 @@ describe("isAppShellPath", () => {
 });
 
 describe("isItemActive", () => {
-  const explorer: NavItem = { title: "Stock Explorer", href: "/", icon: Compass, match: "exact" };
+  const explorer: NavItem = { title: "Stock Explorer", href: "/stocks", icon: Compass, match: "exact" };
   const portfolio: NavItem = { title: "My Portfolio", href: "/portfolio", icon: Wallet, match: "exact" };
   const riskLab: NavItem = { title: "Risk Lab", href: "/portfolio#risk-lab", icon: ShieldAlert };
 
   it("exact match only lights up on the exact path", () => {
-    expect(isItemActive(explorer, "/")).toBe(true);
+    expect(isItemActive(explorer, "/stocks")).toBe(true);
     expect(isItemActive(explorer, "/dashboard")).toBe(false);
+    // The explorer stays inactive on public stock detail pages.
+    expect(isItemActive(explorer, "/stocks/RELIANCE")).toBe(false);
     expect(isItemActive(portfolio, "/portfolio")).toBe(true);
     expect(isItemActive(portfolio, "/portfolio/extra")).toBe(false);
   });

@@ -5,7 +5,7 @@ export const siteConfig = {
   description:
     "Educational stock research for Indian retail investors. Transparent fundamental scores, filings-grounded AI, and portfolio risk tools. Not investment advice.",
   nav: [
-    { title: "Explore", href: "/" },
+    { title: "Explore", href: "/stocks" },
     { title: "AI Debate", href: "/debate" },
     { title: "Community", href: "/community" },
     { title: "Portfolio", href: "/portfolio" },

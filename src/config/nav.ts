@@ -50,7 +50,7 @@ export const appNav: NavGroup[] = [
     items: [
       {
         title: "Stock Explorer",
-        href: "/",
+        href: "/stocks",
         icon: Compass,
         match: "exact",
         description: "Browse and rank stocks",
@@ -111,10 +111,9 @@ export const appNav: NavGroup[] = [
 export const appNavItems: NavItem[] = appNav.flatMap((g) => g.items);
 
 /**
- * Prefixes where the authenticated sidebar shell should render. Public and
- * marketing routes (home root segments like /methodology, /login, /stocks)
- * keep the top-header chrome instead. Note: "/" (Stock Explorer) is public and
- * intentionally NOT shell-wrapped, so it is excluded here.
+ * Prefixes where the authenticated sidebar shell should render (the prefix and
+ * every sub-path). Public / marketing routes ("/", "/methodology", "/login")
+ * keep the top-header chrome instead.
  */
 export const APP_SHELL_PREFIXES = [
   "/dashboard",
@@ -125,8 +124,17 @@ export const APP_SHELL_PREFIXES = [
   "/community",
 ] as const;
 
+/**
+ * Exact paths that use the sidebar shell but whose sub-paths do NOT. The Stock
+ * Explorer (/stocks) is authenticated and shell-wrapped, while the public stock
+ * detail pages (/stocks/[symbol]) keep the top-header chrome so they remain
+ * shareable to signed-out visitors.
+ */
+export const APP_SHELL_EXACT = ["/stocks"] as const;
+
 /** True when a pathname should use the sidebar app shell. */
 export function isAppShellPath(pathname: string): boolean {
+  if (APP_SHELL_EXACT.some((p) => pathname === p)) return true;
   return APP_SHELL_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );

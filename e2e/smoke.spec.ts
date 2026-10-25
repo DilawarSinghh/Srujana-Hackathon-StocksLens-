@@ -7,16 +7,37 @@ import { test, expect } from "@playwright/test";
  *     data has not been seeded).
  */
 
-test("home loads", async ({ page }) => {
+test("home (public landing) loads for signed-out visitors", async ({ page }) => {
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: /Research stocks through their official filings/i }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: /Top-scored by fundamentals/i }),
-  ).toBeVisible();
+  // Get-started / sign-in actions are present.
+  await expect(page.getByRole("link", { name: /Get started/i }).first()).toBeVisible();
   // Legal disclaimer is present on every page.
   await expect(page.getByText(/Not investment advice/i).first()).toBeVisible();
+});
+
+test("public landing no longer carries the stock explorer listing", async ({
+  page,
+}) => {
+  await page.goto("/");
+  // The ranked listing and its category filters now live in the authenticated
+  // Stock Explorer (/stocks), not on the public landing page.
+  await expect(
+    page.getByRole("heading", { name: /Top-scored by fundamentals/i }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("tablist", { name: /Stock categories/i })).toHaveCount(0);
+});
+
+test("Stock Explorer is private — signed-out users are redirected to /login", async ({
+  page,
+}) => {
+  await page.goto("/stocks");
+  await page.waitForURL(/\/login/);
+  expect(page.url()).toContain("/login");
+  // The return-to path is preserved for post-login redirect.
+  expect(decodeURIComponent(page.url())).toContain("/stocks");
 });
 
 test("a stock page shows a score (or a clean fallback)", async ({ page }) => {

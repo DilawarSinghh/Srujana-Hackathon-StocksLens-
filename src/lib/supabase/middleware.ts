@@ -5,7 +5,7 @@ import { getPublicEnv } from "@/lib/env";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-/** Routes that require an authenticated user. */
+/** Routes that require an authenticated user (the prefix and its sub-paths). */
 const PROTECTED_PREFIXES = [
   "/dashboard",
   "/portfolio",
@@ -13,6 +13,13 @@ const PROTECTED_PREFIXES = [
   "/chat",
   "/debate",
 ];
+
+/**
+ * Exact paths that require authentication but whose sub-paths are public. The
+ * Stock Explorer (/stocks) is private, while stock detail pages
+ * (/stocks/[symbol]) stay public and shareable.
+ */
+const PROTECTED_EXACT = ["/stocks"];
 
 /**
  * Refreshes the Supabase session on every request and enforces route
@@ -50,9 +57,21 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isProtected = PROTECTED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  );
+
+  // Signed-in users never see the public landing page; send them to their
+  // authenticated home. (Only the exact root — deep links are untouched.)
+  if (pathname === "/" && user) {
+    const dashboardUrl = request.nextUrl.clone();
+    dashboardUrl.pathname = "/dashboard";
+    dashboardUrl.search = "";
+    return NextResponse.redirect(dashboardUrl);
+  }
+
+  const isProtected =
+    PROTECTED_EXACT.includes(pathname) ||
+    PROTECTED_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`),
+    );
 
   if (isProtected && !user) {
     const loginUrl = request.nextUrl.clone();

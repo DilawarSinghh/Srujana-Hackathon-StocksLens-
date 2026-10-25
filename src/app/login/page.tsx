@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
+import { safeNextPath } from "@/lib/safe-redirect";
 import {
   Card,
   CardContent,
@@ -26,13 +27,15 @@ interface LoginPageProps {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const { next, error } = await searchParams;
 
+  // Only honor safe, same-origin internal return paths; default to the
+  // authenticated home. Rejects external and protocol-relative URLs.
+  const safeNext = safeNextPath(next);
+
   // Already signed in: skip the login screen.
   const user = await getCurrentUser();
   if (user) {
-    redirect(next && next.startsWith("/") ? next : "/");
+    redirect(safeNext);
   }
-
-  const safeNext = next && next.startsWith("/") ? next : "/";
 
   return (
     <div className="container flex min-h-[70vh] items-center justify-center py-10">

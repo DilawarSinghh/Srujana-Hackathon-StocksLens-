@@ -6,14 +6,13 @@ import {
   LineChart,
   Scale,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 /**
- * Presentational landing sections (features, how-it-works, trust) shown above
- * the real stock listing on the home page. No market numbers are rendered
- * here; the single illustrative preview is explicitly labelled.
+ * Presentational landing sections (features, how-it-works, trust) for the
+ * public marketing page. No market numbers are rendered here — real stock data
+ * and scores live in the authenticated Stock Explorer (/stocks).
  */
 
 const FEATURES: { icon: typeof Gauge; title: string; body: string }[] = [
@@ -94,29 +93,6 @@ const TRUST: { title: string; body: string }[] = [
 export function LandingSections() {
   return (
     <>
-      {/* Product preview — clearly illustrative, no live figures. */}
-      <section aria-labelledby="preview-heading" className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-2">
-          <h2 id="preview-heading" className="text-xl font-semibold">
-            What a StockLens report looks like
-          </h2>
-          <span className="rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-            Illustrative example — not live data
-          </span>
-        </div>
-        <Card className="overflow-hidden">
-          <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
-            <PreviewTile label="Fundamental score" value="—" caption="Six pillars, 0–100" accent="strong" />
-            <PreviewTile label="Historical volatility" value="—" caption="1y, annualised" accent="neutral" />
-            <PreviewTile label="Max drawdown (3y)" value="—" caption="Peak-to-trough" accent="weak" />
-          </CardContent>
-        </Card>
-        <p className="text-xs text-muted-foreground">
-          Figures show as “—” until the market-data pipeline has been run. Real
-          values are only ever rendered from sourced, stored data.
-        </p>
-      </section>
-
       {/* Features */}
       <section aria-labelledby="features-heading" className="flex flex-col gap-4">
         <h2 id="features-heading" className="text-xl font-semibold">
@@ -177,34 +153,5 @@ export function LandingSections() {
         </div>
       </section>
     </>
-  );
-}
-
-function PreviewTile({
-  label,
-  value,
-  caption,
-  accent,
-}: {
-  label: string;
-  value: string;
-  caption: string;
-  accent: "strong" | "weak" | "neutral";
-}) {
-  const accentClass =
-    accent === "strong"
-      ? "text-strong"
-      : accent === "weak"
-        ? "text-weak"
-        : "text-foreground";
-  return (
-    <div className="rounded-lg border border-border bg-muted/30 p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold nums ${accentClass}`}>{value}</p>
-      <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
-        <Sparkles className="h-3 w-3" aria-hidden="true" />
-        {caption}
-      </p>
-    </div>
   );
 }

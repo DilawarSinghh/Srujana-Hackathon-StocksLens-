@@ -11,7 +11,7 @@ interface GoogleSignInButtonProps {
 }
 
 /** Single "Continue with Google" OAuth button. */
-export function GoogleSignInButton({ next = "/" }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({ next = "/dashboard" }: GoogleSignInButtonProps) {
   const [loading, setLoading] = React.useState(false);
 
   async function handleSignIn() {

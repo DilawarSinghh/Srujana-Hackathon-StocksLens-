@@ -328,7 +328,7 @@ export default function MethodologyPage() {
         <Disclaimer />
         <p className="mt-2 text-sm text-muted-foreground">
           Questions about a specific score? Open any{" "}
-          <Link href="/" className="text-primary underline-offset-4 hover:underline">
+          <Link href="/stocks" className="text-primary underline-offset-4 hover:underline">
             stock page
           </Link>{" "}
           to see its per-pillar breakdown and the exact numbers behind it.

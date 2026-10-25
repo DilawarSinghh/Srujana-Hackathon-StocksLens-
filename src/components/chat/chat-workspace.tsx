@@ -108,7 +108,7 @@ export function ChatWorkspace({ webEnabled }: { webEnabled: boolean }) {
 
       <p className="text-center text-xs text-muted-foreground">
         Browse by sector on the{" "}
-        <Link href="/" className="underline underline-offset-2 hover:text-foreground">
+        <Link href="/stocks" className="underline underline-offset-2 hover:text-foreground">
           Stock Explorer
         </Link>
         :{" "}
