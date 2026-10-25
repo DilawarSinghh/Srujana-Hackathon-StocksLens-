@@ -248,3 +248,112 @@ Then, if time remains: rate/currency scenarios, investor-profile + goal conflict
 
 ---
 *Evidence basis: `pnpm install/lint/tsc/build/test/e2e/audit` outputs; read-only Supabase row-count + column-existence queries (no writes); greps over `src/`, `scripts/`, `supabase/migrations/`; and direct reads of the cited files. Items needing a live deployment, live APIs, or seeded data are marked UNVERIFIED above.*
+
+
+---
+
+## 10. Re-audit After Fixes (2026-10-25)
+
+Second pass after the fix work landed on `fix/audit-findings` (commits `0b531c3`
+→ `9f46b24`). This section records only what changed and what was re-verified;
+earlier sections describe the original baseline.
+
+> **Concurrency note.** During this pass the workspace was briefly also edited by
+> a parallel agent session (a WIP `feat/llm-providers-web-research` branch adding
+> `src/lib/llm/` + a web-research feature) that did not build (it imported
+> `@ai-sdk/provider`, `@ai-sdk/groq`, `@ai-sdk/openai-compatible`, which were not
+> installed). That WIP was isolated from verification by running checks against
+> the committed fix tree in a separate `git worktree`, and it is not part of
+> these findings.
+
+### 10.1 Build health (re-run, committed fix branch)
+
+| Check | Before | After | Evidence |
+| --- | --- | --- | --- |
+| `tsc --noEmit` | ✅ | ✅ PASS | exit 0, no output |
+| `pnpm lint` | ✅ | ✅ PASS | "No ESLint warnings or errors" (fixed one unused-import warning in `scenarios-correlation.test.ts`) |
+| `pnpm test` | 189 pass | ✅ **275 pass**, 3 skipped (16 files) | added portfolio (correlation / scenarios / comparison / goal-conflicts), guardrails (now 112 cases), and `explain-context` tests |
+| `pnpm build` | 414 kB `/stocks/[symbol]` | ✅ PASS, **246 kB** `/stocks/[symbol]` | charts lazy-loaded via `next/dynamic` (ssr:false) + skeletons; `/portfolio` 162 kB; `/api/portfolio/explain` route present |
+| `pnpm e2e` | ❌ (no browsers) | ⚠️ chromium installed this pass; smoke specs unchanged; webServer build was intermittently blocked by the parallel WIP, not by the fix tree | committed tree builds clean |
+| `pnpm audit` | 46 (13 high, 4 crit) | **15** (4 high, 2 crit) | `jspdf@4.2.1` — **all jspdf high/critical CVEs cleared** |
+
+### 10.2 Audit findings — status now
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| C5 / I9 — intent guard gaps (Hinglish, "will X double", "which is best") | ✅ FIXED | `guardrails.ts` adds `normalizeForGuard` (punctuation strip + Hinglish spelling folds) and English+Hinglish patterns; 112 guard tests pass, incl. the 4 previously-slipping prompts; output guard runs on normalized text. |
+| I1 — correlation matrix / heatmap | ✅ ADDED | `src/lib/portfolio/correlation.ts` (`computeCorrelationMatrix`, `computeVolatilityContributions`) + `correlation-heatmap.tsx`; tested. |
+| I2 — rate / currency / sector scenarios | ✅ ADDED | `src/lib/portfolio/scenarios.ts` (`market_decline` / `sector_shock` / `rate_change` / `currency_move`) + `config/scenario-assumptions.ts`; RiskLab UI with editable assumptions. |
+| I3 — risk-tolerance / horizon / liquidity + goal conflicts | ✅ ADDED | `goal-conflicts.ts` (+ tests), `profile-form.tsx`, migration `0009_portfolio_profile.sql` (portfolio_profiles, owner-only RLS). **0009 is NOT yet applied to the live DB — see §10.4.** |
+| I4 — side-by-side allocation comparison | ✅ ADDED | `comparison.ts` (`compareAllocations`) + RiskLab A/B table (HHI, beta, scenario impact). |
+| I5 — assumptions panel + per-holding volatility contribution | ✅ ADDED | RiskLab assumptions drawer; `computeVolatilityContributions`. |
+| I6 — `/documents` in middleware `PROTECTED_PREFIXES` | ✅ FIXED | `middleware.ts`: `["/portfolio", "/documents"]`. |
+| I7 — `/api/search` PostgREST filter-injection | ✅ FIXED | `route.ts` escapes `\ % _` before building the ILIKE pattern. |
+| I8 — bump `jspdf` | ✅ FIXED | `jspdf@^4.2.1`; audit no longer lists jspdf. |
+| N1 — CSP + HSTS headers | ✅ ADDED | `next.config.ts` adds `Strict-Transport-Security` and `Content-Security-Policy-Report-Only`. **Report-Only on purpose:** ship it first, watch for violation reports, then rename the header to `Content-Security-Policy` to enforce. |
+| N2 — sample-portfolio button | ✅ ADDED | `sample-portfolio-button.tsx` + `loadSamplePortfolio` action (seeded stocks only). |
+| N3 — lazy-load charts | ✅ FIXED | `components/charts/lazy.tsx`; stock page 414 → 246 kB. |
+| N4 — Playwright browsers for e2e | ⚠️ PARTIAL | chromium installed; e2e webServer build was flaky this pass (parallel WIP), not a code regression. |
+
+### 10.3 "Explain my portfolio's risk" (new)
+
+`POST /api/portfolio/explain`: login required; **shared** hourly rate limit with
+the stock chat via `src/lib/rag/rate-limit.ts` (both read the same
+`chat_messages` user-message count, cap 20/hr); the **server computes every
+number** (concentration, beta, volatility, correlation, per-holding volatility
+contribution) and passes a neutral DATA block built by `buildPortfolioRiskData`;
+the model **only explains** it under `PORTFOLIO_EXPLAIN_SYSTEM_PROMPT` (never
+adds a number; reports null values as "not available"); runs through the Gemini
+**model-fallback chain**; the output is **advice-guarded** (`containsAdvice` →
+neutral fallback) and always ends with the disclaimer. UI:
+`explain-risk-button.tsx` on `/portfolio`. Covered by `explain-context.test.ts`.
+
+### 10.4 Remaining vulnerabilities (`pnpm audit`: 15 total — 2 low, 7 moderate, 4 high, 2 critical)
+
+All are **dev/build-only or not in a shipped client path**; none were introduced
+by the fix work, and the shipped PDF path (`jspdf`) is now clean:
+
+- **Critical (2):** `tinypool` (prototype-pollution → RCE) — dev-only, via vitest.
+- **High (4):** `postcss` (×2, path traversal / arbitrary `.map` read) — build-only;
+  `jsondiffpatch` — prototype pollution; `zod` — memory exhaustion on oversized
+  constrained collections (all our inputs are length-capped).
+- **Moderate/low:** further `postcss` / `vitest` (dev/build) items; `jsondiffpatch`
+  XSS; Vercel AI SDK filetype-whitelist bypass (low) and `@ai-sdk/provider-utils`
+  resource consumption (low).
+
+### 10.5 Still open / UNVERIFIED
+
+- **Real data pipeline (Task 1): BLOCKED.** `pnpm seed` succeeded (15 stocks).
+  `pnpm fetch` could not run: **Yahoo Finance hard-rate-limited this IP**
+  ("Too Many Requests") for the entire session (~50 min, confirmed on single
+  `quote` probes with backoff). So `stock_metrics`, `fundamentals_annual`,
+  `price_history`, `scores` remain **0 rows**; `fetch` / `score` / `ingest` and
+  the RELIANCE/TCS/HDFCBANK data table could **not** be produced. No numbers were
+  invented. `yahoo.ts` already uses the `fundamentalsTimeSeries` endpoint and
+  keeps NULL-for-missing (no change needed). Re-run `pnpm fetch && pnpm score`
+  from an un-throttled network/IP.
+- **Migration `0009_portfolio_profile.sql`: NOT applied to the live DB.** No
+  Supabase CLI is installed and the project is not linked; the service-role key
+  only reaches PostgREST (no DDL). `portfolio_profiles` is absent live
+  (`getPortfolioProfile` already degrades to `null` so the page does not crash).
+  Apply via the Supabase SQL editor.
+- **Governance CSV still header-only** → governance pillar null for all stocks;
+  no governance red flags. Not filled (no source values provided).
+- **No filings ingested** (`data/filings/` empty) → AI chat has nothing to cite.
+- **OAuth / live Google login, document RLS isolation, `/api/search` live probe**
+  remain UNVERIFIED (need a live deployment / live auth).
+
+### 10.6 "Needs me" (owner action required)
+
+1. **Governance values** — fill `data/governance_seed.csv` (promoter / pledge /
+   FII / DII / auditor per stock), then `pnpm seed`. Not invented here.
+2. **Missing PDFs** — download one official annual-report PDF per demo stock
+   (company IR or NSE/BSE) into `data/filings/<SYM>/`, then `pnpm ingest`.
+3. **Run the data pipeline from an un-throttled network** — `pnpm fetch && pnpm
+   score`; then sanity-check RELIANCE/TCS/HDFCBANK (price, P/E, ROE, debt/equity,
+   revenue, score, confidence) against **Screener.in**.
+4. **Apply migration 0009** — run `supabase/migrations/0009_portfolio_profile.sql`
+   in the Supabase SQL editor.
+5. **Live Google login test** — sign in on the deployed URL; confirm `/portfolio`
+   and `/documents` redirect to `/login?next=` when logged out and the header
+   shows the user.
