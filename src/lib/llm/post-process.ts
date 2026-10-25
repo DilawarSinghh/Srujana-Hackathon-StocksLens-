@@ -59,7 +59,7 @@ export function stripInvalidCitations(
 }
 
 function annotateFirstSentence(text: string): string {
-  const m = text.match(/^(.*?[.!?])(\s|$)/s);
+  const m = text.match(/^([\s\S]*?[.!?])(\s|$)/);
   if (!m) return `${text}${UNVERIFIABLE_MARK}`;
   const sentence = m[1];
   return text.replace(sentence, `${sentence}${UNVERIFIABLE_MARK}`);

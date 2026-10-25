@@ -17,10 +17,10 @@ export function approxTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/** Minimal shape a budgetable chunk must expose. */
 export interface BudgetChunk {
   content: string;
   similarity: number;
-  [key: string]: unknown;
 }
 
 /**
