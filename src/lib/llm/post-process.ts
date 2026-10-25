@@ -23,6 +23,16 @@ const THINK_BLOCK_RE = /<think>[\s\S]*?<\/think>/gi;
 const UNTERMINATED_THINK_RE = /<think>[\s\S]*$/i;
 const UNVERIFIABLE_MARK = " (unverifiable: source not provided)";
 
+/**
+ * Normalize non-ASCII citation brackets some open models emit (e.g. the
+ * full-width 【S1】 or 〔S1〕) into ASCII [S1] so downstream citation detection,
+ * stripping, and chip rendering recognize them. Only rewrites brackets that
+ * wrap a citation tag (S\d+ / W\d+), so ordinary CJK text is left untouched.
+ */
+export function normalizeCitationBrackets(text: string): string {
+  return text.replace(/[【〔]\s*([SW]\d+)\s*[】〕]/g, "[$1]");
+}
+
 /** Remove <think>…</think> reasoning blocks (terminated or not). */
 export function stripReasoning(text: string): string {
   return text
@@ -103,8 +113,8 @@ export function postProcess(
   opts: PostProcessOptions,
 ): PostProcessResult {
   const before = raw;
-  let text = stripReasoning(raw);
-  const strippedReasoning = text !== before.trim();
+  let text = stripReasoning(normalizeCitationBrackets(raw));
+  const strippedReasoning = text !== normalizeCitationBrackets(before).trim();
 
   const { text: afterCites, strippedAny } = stripInvalidCitations(
     text,
