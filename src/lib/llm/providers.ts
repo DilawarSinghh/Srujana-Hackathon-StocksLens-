@@ -1,23 +1,31 @@
 import "server-only";
 import type { LanguageModelV1 } from "ai";
 import { createGroq } from "@ai-sdk/groq";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { google } from "@ai-sdk/google";
 import { getServerEnv } from "@/lib/env";
 
 /**
- * Provider-agnostic chat model resolution.
+ * Groq-only chat model resolution.
  *
- * A "chain entry" is a `provider:model` string (e.g. "groq:llama-3.1-8b" or
- * "google:gemini-2.0-flash"). We resolve each entry to a Vercel AI SDK
- * LanguageModelV1 instance. A provider whose API key (or required base URL) is
- * missing from the validated env is SKIPPED SILENTLY so a deployment can run
- * with whichever providers happen to be configured.
+ * StockLens uses Groq as its ONLY LLM inference provider. A "chain entry" is a
+ * `provider:model` string (e.g. "groq:openai/gpt-oss-20b"). Only the `groq`
+ * provider is accepted; any other prefix (google / huggingface / openai / …) is
+ * dropped during parsing so no non-Groq inference path can ever be constructed,
+ * even if a stray entry is left in LLM_CHAT_CHAIN.
  *
- * No model names or keys are hard-coded here: everything comes from env.
+ * The chain still exists so that several Groq models can be tried in order on a
+ * transient Groq failure (rate limit / 5xx / timeout) — this is a fallback
+ * BETWEEN GROQ MODELS, never between providers.
+ *
+ * No model names or keys are hard-coded here: everything comes from env
+ * (LLM_CHAT_CHAIN, or GROQ_MODEL as the default single-model chain).
+ *
+ * NOTE: text embeddings are NOT handled here. Groq exposes no embeddings
+ * endpoint, so embeddings remain on a separate provider (see
+ * src/lib/rag/embeddings.ts). That is a retrieval dependency, not LLM
+ * inference, and is intentionally out of scope for this resolver.
  */
 
-export type ProviderId = "groq" | "huggingface" | "google";
+export type ProviderId = "groq";
 
 export interface ChainEntry {
   provider: ProviderId;
@@ -26,22 +34,19 @@ export interface ChainEntry {
 
 /** A resolved, ready-to-use model plus a stable label for logging. */
 export interface ResolvedModel {
-  label: string; // e.g. "groq:llama-3.1-8b-instant"
+  label: string; // e.g. "groq:openai/gpt-oss-20b"
   provider: ProviderId;
   model: LanguageModelV1;
 }
 
-const KNOWN_PROVIDERS: ReadonlySet<string> = new Set([
-  "groq",
-  "huggingface",
-  "google",
-]);
+/** The only LLM inference provider StockLens is permitted to use. */
+const KNOWN_PROVIDERS: ReadonlySet<string> = new Set(["groq"]);
 
 /**
- * Parse a comma-separated chain string into typed entries. Unknown provider
- * prefixes and malformed entries are dropped. Order and duplicates within the
- * parsed list are preserved as written (de-duplication happens later per
- * resolved label).
+ * Parse a comma-separated chain string into typed entries. Entries whose
+ * provider prefix is not `groq` are dropped (Groq-only policy), as are
+ * malformed entries. Order and duplicates within the parsed list are preserved
+ * as written (de-duplication happens later per resolved label).
  */
 export function parseChain(raw: string | undefined): ChainEntry[] {
   if (!raw) return [];
@@ -60,22 +65,18 @@ export function parseChain(raw: string | undefined): ChainEntry[] {
 }
 
 /**
- * True when a provider has the credentials it needs to be usable. Used to skip
- * entries silently rather than failing a whole request.
+ * True when a provider has the credentials it needs to be usable. Groq needs
+ * GROQ_API_KEY.
  */
 export function isProviderConfigured(provider: ProviderId): boolean {
   const env = getServerEnv();
   switch (provider) {
     case "groq":
       return Boolean(env.GROQ_API_KEY);
-    case "huggingface":
-      return Boolean(env.HUGGINGFACE_API_KEY && env.HUGGINGFACE_BASE_URL);
-    case "google":
-      return Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY);
   }
 }
 
-/** Build a LanguageModelV1 for one entry, or null if the provider is unusable. */
+/** Build a LanguageModelV1 for one entry, or null if Groq is not configured. */
 export function resolveModel(entry: ChainEntry): ResolvedModel | null {
   const env = getServerEnv();
   if (!isProviderConfigured(entry.provider)) return null;
@@ -86,44 +87,32 @@ export function resolveModel(entry: ChainEntry): ResolvedModel | null {
       const groq = createGroq({ apiKey: env.GROQ_API_KEY });
       return { label, provider: "groq", model: groq(entry.model) };
     }
-    case "huggingface": {
-      const hf = createOpenAICompatible({
-        name: "huggingface",
-        apiKey: env.HUGGINGFACE_API_KEY,
-        baseURL: env.HUGGINGFACE_BASE_URL as string,
-      });
-      return { label, provider: "huggingface", model: hf(entry.model) };
-    }
-    case "google": {
-      // The Google provider reads GOOGLE_GENERATIVE_AI_API_KEY from env.
-      return { label, provider: "google", model: google(entry.model) };
-    }
   }
 }
 
 /**
- * Resolve the ordered list of usable chat models.
+ * Resolve the ordered list of usable Groq chat models.
  *
  * Precedence:
- *   1. LLM_CHAT_CHAIN when set — multi-provider, entries tried in order.
- *   2. Otherwise the legacy Gemini-only chain (GEMINI_CHAT_MODELS +
- *      GEMINI_CHAT_MODEL) for backward compatibility.
+ *   1. LLM_CHAT_CHAIN when set — ordered `groq:<model>` entries, tried in order
+ *      on a transient Groq failure. Non-groq entries are dropped.
+ *   2. Otherwise a single-model chain built from GROQ_MODEL.
  *
- * Providers whose keys are missing are skipped. De-duplicated by label while
- * preserving order. May return an empty array if nothing is configured; the
+ * De-duplicated by label while preserving order. Returns an empty array when
+ * Groq is not configured (no GROQ_API_KEY) or no usable model is set; the
  * caller surfaces the existing friendly error in that case.
  */
 export function resolveChatChain(): ResolvedModel[] {
   const env = getServerEnv();
   const entries = env.LLM_CHAT_CHAIN
     ? parseChain(env.LLM_CHAT_CHAIN)
-    : legacyGeminiEntries();
+    : defaultGroqEntries();
 
   const out: ResolvedModel[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
     const resolved = resolveModel(entry);
-    if (!resolved) continue; // provider not configured — skip silently
+    if (!resolved) continue; // Groq not configured — skip silently
     if (seen.has(resolved.label)) continue;
     seen.add(resolved.label);
     out.push(resolved);
@@ -131,23 +120,18 @@ export function resolveChatChain(): ResolvedModel[] {
   return out;
 }
 
-/** Legacy Gemini chain as `google:` entries (backward-compatible fallback). */
-function legacyGeminiEntries(): ChainEntry[] {
+/** Default single-model Groq chain built from GROQ_MODEL. */
+function defaultGroqEntries(): ChainEntry[] {
   const env = getServerEnv();
-  const models = (env.GEMINI_CHAT_MODELS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  models.push(env.GEMINI_CHAT_MODEL); // always the final fallback
-  return [...new Set(models)].map((model) => ({
-    provider: "google" as const,
-    model,
-  }));
+  const model = env.GROQ_MODEL?.trim();
+  if (!model) return [];
+  return [{ provider: "groq", model }];
 }
 
 /**
  * Resolve the single model used for the fact audit. Uses LLM_AUDIT_MODEL when
- * set and configured; otherwise the head of the resolved chat chain.
+ * set and configured (must be a `groq:` entry); otherwise the head of the
+ * resolved chat chain.
  */
 export function resolveAuditModel(): ResolvedModel | null {
   const env = getServerEnv();

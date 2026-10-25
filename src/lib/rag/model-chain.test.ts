@@ -146,11 +146,11 @@ describe("generateWithFallback", () => {
   it("tries a preferred model first", async () => {
     generateText.mockResolvedValueOnce({ text: "audit json" });
     const preferred: ResolvedModel = {
-      label: "google:audit",
-      provider: "google",
-      model: { __model: "google:audit" } as unknown as ResolvedModel["model"],
+      label: "groq:audit",
+      provider: "groq",
+      model: { __model: "groq:audit" } as unknown as ResolvedModel["model"],
     };
     await generateWithFallback({ prompt: "x" }, preferred);
-    expect(generateText.mock.calls[0][0].model).toEqual({ __model: "google:audit" });
+    expect(generateText.mock.calls[0][0].model).toEqual({ __model: "groq:audit" });
   });
 });

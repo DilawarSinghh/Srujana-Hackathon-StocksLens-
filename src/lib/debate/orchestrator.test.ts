@@ -99,7 +99,7 @@ describe("runDebate — happy path", () => {
   it("runs bull -> devil -> judge in order and passes bull claims to the devil", async () => {
     const calls: string[] = [];
     const generate: GenerateFn = vi.fn(async ({ system, messages }) => {
-      const content = messages.map((m) => m.content).join("\n");
+      const content = messages.map((m: { content: string }) => m.content).join("\n");
       if (system.includes("BULL analyst")) {
         calls.push("bull");
         return BULL_JSON;
@@ -129,7 +129,7 @@ describe("runDebate — happy path", () => {
     let bullContent = "";
     const generate: GenerateFn = vi.fn(async ({ system, messages }) => {
       if (system.includes("BULL analyst")) {
-        bullContent = messages.map((m) => m.content).join("\n");
+        bullContent = messages.map((m: { content: string }) => m.content).join("\n");
         return BULL_JSON;
       }
       if (system.includes("DEVIL'S ADVOCATE")) return DEVIL_JSON;

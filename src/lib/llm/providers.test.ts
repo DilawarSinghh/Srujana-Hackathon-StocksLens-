@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * Tests for the provider resolver: chain parsing, skipping providers whose key
- * is missing, backward-compatible Gemini fallback, and audit-model selection.
- * Provider SDK factories are mocked to tag the model they produce.
+ * Tests for the Groq-only provider resolver: chain parsing (dropping any
+ * non-groq entry), skipping Groq when its key is missing, the GROQ_MODEL
+ * default chain, and audit-model selection. The Groq SDK factory is mocked to
+ * tag the model it produces.
  */
 
 const env: Record<string, string | undefined> = {};
@@ -18,16 +19,6 @@ vi.mock("@ai-sdk/groq", () => ({
     apiKey: cfg.apiKey,
   }),
 }));
-vi.mock("@ai-sdk/openai-compatible", () => ({
-  createOpenAICompatible: (cfg: { baseURL: string; apiKey?: string }) => (model: string) => ({
-    __p: "hf",
-    model,
-    baseURL: cfg.baseURL,
-  }),
-}));
-vi.mock("@ai-sdk/google", () => ({
-  google: (model: string) => ({ __p: "google", model }),
-}));
 
 import {
   parseChain,
@@ -41,14 +32,10 @@ beforeEach(() => {
 });
 
 describe("parseChain", () => {
-  it("parses provider:model entries and drops malformed/unknown ones", () => {
+  it("parses groq entries and DROPS every non-groq / malformed entry", () => {
     expect(
-      parseChain("groq:a, huggingface:b , google:c, bogus:d, nocolon, :e"),
-    ).toEqual([
-      { provider: "groq", model: "a" },
-      { provider: "huggingface", model: "b" },
-      { provider: "google", model: "c" },
-    ]);
+      parseChain("groq:a, huggingface:b , google:c, openai:d, bogus:e, nocolon, :f"),
+    ).toEqual([{ provider: "groq", model: "a" }]);
   });
   it("returns [] for undefined", () => {
     expect(parseChain(undefined)).toEqual([]);
@@ -56,31 +43,21 @@ describe("parseChain", () => {
 });
 
 describe("isProviderConfigured", () => {
-  it("requires the matching key(s)", () => {
+  it("requires GROQ_API_KEY", () => {
     expect(isProviderConfigured("groq")).toBe(false);
     env.GROQ_API_KEY = "k";
     expect(isProviderConfigured("groq")).toBe(true);
-
-    expect(isProviderConfigured("huggingface")).toBe(false);
-    env.HUGGINGFACE_API_KEY = "k";
-    expect(isProviderConfigured("huggingface")).toBe(false); // base URL still missing
-    env.HUGGINGFACE_BASE_URL = "https://router.hf/v1";
-    expect(isProviderConfigured("huggingface")).toBe(true);
-
-    expect(isProviderConfigured("google")).toBe(false);
-    env.GOOGLE_GENERATIVE_AI_API_KEY = "k";
-    expect(isProviderConfigured("google")).toBe(true);
   });
 });
 
 describe("resolveChatChain", () => {
-  it("skips a provider whose key is missing (silent)", () => {
-    env.LLM_CHAT_CHAIN = "groq:m1,huggingface:m2,google:m3";
+  it("resolves only groq entries, dropping a stray google: entry", () => {
+    env.LLM_CHAT_CHAIN = "groq:m1,google:m2,groq:m3";
     env.GROQ_API_KEY = "k";
-    env.GOOGLE_GENERATIVE_AI_API_KEY = "k";
-    // HuggingFace has no key/base URL -> skipped.
+    env.GOOGLE_GENERATIVE_AI_API_KEY = "k"; // present, but must NOT be used for chat
     const chain = resolveChatChain();
-    expect(chain.map((m) => m.label)).toEqual(["groq:m1", "google:m3"]);
+    expect(chain.map((m) => m.label)).toEqual(["groq:m1", "groq:m3"]);
+    expect(chain.every((m) => m.provider === "groq")).toBe(true);
   });
 
   it("preserves order and de-duplicates by label", () => {
@@ -92,34 +69,43 @@ describe("resolveChatChain", () => {
     ]);
   });
 
-  it("falls back to the legacy Gemini chain when LLM_CHAT_CHAIN is unset", () => {
-    env.GEMINI_CHAT_MODELS = "gemini-x, gemini-y";
-    env.GEMINI_CHAT_MODEL = "gemini-z";
-    env.GOOGLE_GENERATIVE_AI_API_KEY = "k";
+  it("uses GROQ_MODEL as a single-model chain when LLM_CHAT_CHAIN is unset", () => {
+    env.GROQ_MODEL = "openai/gpt-oss-20b";
+    env.GROQ_API_KEY = "k";
     expect(resolveChatChain().map((m) => m.label)).toEqual([
-      "google:gemini-x",
-      "google:gemini-y",
-      "google:gemini-z",
+      "groq:openai/gpt-oss-20b",
     ]);
   });
 
-  it("returns [] when no provider is configured", () => {
+  it("returns [] when Groq is not configured", () => {
     env.LLM_CHAT_CHAIN = "groq:m1";
+    expect(resolveChatChain()).toEqual([]);
+  });
+
+  it("returns [] when neither LLM_CHAT_CHAIN nor GROQ_MODEL is set", () => {
+    env.GROQ_API_KEY = "k";
     expect(resolveChatChain()).toEqual([]);
   });
 });
 
 describe("resolveAuditModel", () => {
-  it("uses LLM_AUDIT_MODEL when configured", () => {
+  it("uses LLM_AUDIT_MODEL when it is a configured groq entry", () => {
+    env.LLM_AUDIT_MODEL = "groq:audit-model";
+    env.GROQ_API_KEY = "k";
+    expect(resolveAuditModel()?.label).toBe("groq:audit-model");
+  });
+
+  it("ignores a non-groq LLM_AUDIT_MODEL and falls back to the chat-chain head", () => {
     env.LLM_AUDIT_MODEL = "google:audit-model";
+    env.LLM_CHAT_CHAIN = "groq:m1";
+    env.GROQ_API_KEY = "k";
     env.GOOGLE_GENERATIVE_AI_API_KEY = "k";
-    expect(resolveAuditModel()?.label).toBe("google:audit-model");
+    expect(resolveAuditModel()?.label).toBe("groq:m1");
   });
 
   it("falls back to the head of the chat chain", () => {
-    env.LLM_CHAT_CHAIN = "groq:m1,google:m2";
+    env.LLM_CHAT_CHAIN = "groq:m1,groq:m2";
     env.GROQ_API_KEY = "k";
-    env.GOOGLE_GENERATIVE_AI_API_KEY = "k";
     expect(resolveAuditModel()?.label).toBe("groq:m1");
   });
 

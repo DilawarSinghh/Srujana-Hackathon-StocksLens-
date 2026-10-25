@@ -29,14 +29,17 @@ const serverEnvSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z
     .string()
     .min(1, "SUPABASE_SERVICE_ROLE_KEY is required for scripts/server code"),
+  // Embeddings-only Google/Gemini credentials. StockLens uses Groq for ALL LLM
+  // inference, but Groq exposes no embeddings endpoint, so RAG embeddings stay
+  // on Gemini (text-embedding model, 768 dims — the pgvector column size). These
+  // are a retrieval dependency, NOT an LLM inference provider. Required only
+  // because filing/document ingestion and retrieval embed text.
   GOOGLE_GENERATIVE_AI_API_KEY: z
     .string()
-    .min(1, "GOOGLE_GENERATIVE_AI_API_KEY is required"),
-  GEMINI_CHAT_MODEL: z.string().min(1, "GEMINI_CHAT_MODEL is required"),
-  // Optional comma-separated fallback chain, tried in order on 429/5xx/timeout.
-  // GEMINI_CHAT_MODEL remains the final fallback if this is unset or exhausted.
-  GEMINI_CHAT_MODELS: z.string().optional(),
-  GEMINI_EMBED_MODEL: z.string().min(1, "GEMINI_EMBED_MODEL is required"),
+    .min(1, "GOOGLE_GENERATIVE_AI_API_KEY is required for embeddings (RAG)"),
+  GEMINI_EMBED_MODEL: z
+    .string()
+    .min(1, "GEMINI_EMBED_MODEL is required for embeddings (RAG)"),
   EMBED_DIMENSIONS: z.coerce.number().int().positive().default(768),
   FINNHUB_API_KEY: z.string().optional(),
   // Tapetide (https://developers.tapetide.com) — primary NSE/BSE market-data
@@ -46,23 +49,23 @@ const serverEnvSchema = z.object({
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required").optional(),
 
   // ---------------------------------------------------------------------------
-  // Multi-provider chat chain (Part 1). Optional; when LLM_CHAT_CHAIN is unset
-  // the code falls back to the Gemini-only chain above (backward compatible).
+  // Groq LLM inference. Groq is the ONLY permitted LLM inference provider.
   // ---------------------------------------------------------------------------
-  // Ordered, comma-separated `provider:model` entries tried in order, e.g.
-  // "groq:<model-id>,huggingface:<model-id>,google:<model-id>". A provider whose
-  // API key is missing is skipped silently.
+  // Default Groq chat model used when LLM_CHAT_CHAIN is unset, e.g.
+  // "openai/gpt-oss-20b".
+  GROQ_MODEL: z.string().optional(),
+  // Optional ordered, comma-separated `groq:<model-id>` chain, tried in order on
+  // a transient Groq failure (429 / 5xx / timeout). Non-`groq:` entries are
+  // dropped — there is no cross-provider fallback. When unset, GROQ_MODEL is
+  // used as a single-model chain.
   LLM_CHAT_CHAIN: z.string().optional(),
-  // Optional `provider:model` override for the cheap fact-audit call. Falls back
+  // Optional `groq:<model-id>` override for the cheap fact-audit call. Falls back
   // to the head of the resolved chat chain when unset.
   LLM_AUDIT_MODEL: z.string().optional(),
-  // Provider API keys. A missing key simply disables that provider.
+  // Groq API key (server only). When missing, all AI features surface the
+  // existing friendly "AI service unavailable" error instead of falling back to
+  // another provider.
   GROQ_API_KEY: z.string().optional(),
-  HUGGINGFACE_API_KEY: z.string().optional(),
-  // OpenAI-compatible router base URL for Hugging Face (e.g.
-  // "https://router.huggingface.co/v1"). Required only if a huggingface: entry
-  // is used in LLM_CHAT_CHAIN.
-  HUGGINGFACE_BASE_URL: z.string().url().optional(),
 
   // ---------------------------------------------------------------------------
   // Token budget (Part 1). Keep free-tier tokens-per-minute within limits.
@@ -113,18 +116,15 @@ export function getServerEnv(): ServerEnv {
   const parsed = serverEnvSchema.safeParse({
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-    GEMINI_CHAT_MODEL: process.env.GEMINI_CHAT_MODEL,
-    GEMINI_CHAT_MODELS: process.env.GEMINI_CHAT_MODELS,
     GEMINI_EMBED_MODEL: process.env.GEMINI_EMBED_MODEL,
     EMBED_DIMENSIONS: process.env.EMBED_DIMENSIONS,
     FINNHUB_API_KEY: process.env.FINNHUB_API_KEY,
     TAPETIDE_API_KEY: process.env.TAPETIDE_API_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
+    GROQ_MODEL: process.env.GROQ_MODEL,
     LLM_CHAT_CHAIN: process.env.LLM_CHAT_CHAIN,
     LLM_AUDIT_MODEL: process.env.LLM_AUDIT_MODEL,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
-    HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
-    HUGGINGFACE_BASE_URL: process.env.HUGGINGFACE_BASE_URL,
     RAG_TOP_K: process.env.RAG_TOP_K,
     RAG_MAX_CONTEXT_TOKENS: process.env.RAG_MAX_CONTEXT_TOKENS,
     SEARCH_PROVIDER: process.env.SEARCH_PROVIDER,

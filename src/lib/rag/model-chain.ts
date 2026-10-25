@@ -8,10 +8,11 @@ import {
 /**
  * Provider-agnostic chat model fallback chain.
  *
- * The chain is resolved from env (see src/lib/llm/providers.ts): either the
- * multi-provider LLM_CHAT_CHAIN ("groq:...,huggingface:...,google:...") or, for
- * backward compatibility, the legacy Gemini-only chain (GEMINI_CHAT_MODELS +
- * GEMINI_CHAT_MODEL). Providers whose API key is missing are skipped silently.
+ * The chain is resolved from env (see src/lib/llm/providers.ts): the Groq-only
+ * LLM_CHAT_CHAIN ("groq:...,groq:...") or, when unset, a single-model chain
+ * built from GROQ_MODEL. Every entry is a Groq model — the fallback is BETWEEN
+ * GROQ MODELS, never between providers. When Groq is not configured the chain
+ * is empty and the caller surfaces the existing friendly error.
  *
  * Transient failures (HTTP 429, 5xx, timeouts/aborts, and provider
  * rate-limit / tokens-per-minute messages) advance to the next entry, honoring

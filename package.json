@@ -17,7 +17,8 @@
     "refresh:beta": "tsx scripts/refresh-beta.ts",
     "score": "tsx scripts/compute-scores.ts",
     "ingest": "tsx scripts/ingest-filings.ts",
-    "eval:chat": "tsx --conditions=react-server scripts/eval-chat.ts"
+    "eval:chat": "tsx --conditions=react-server scripts/eval-chat.ts",
+    "smoke:groq": "tsx --conditions=react-server scripts/groq-smoke.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^1.2.3",
