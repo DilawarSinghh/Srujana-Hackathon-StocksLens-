@@ -11,6 +11,10 @@ export default defineConfig({
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
       "scripts/**/*.test.ts",
+      // Pure unit tests for the e2e auth-harness helpers (the production-target
+      // safety guard). Playwright specs live at e2e/*.spec.ts and never match
+      // this *.test.ts pattern, so they are not pulled into vitest.
+      "e2e/auth/**/*.test.ts",
     ],
     globals: true,
   },

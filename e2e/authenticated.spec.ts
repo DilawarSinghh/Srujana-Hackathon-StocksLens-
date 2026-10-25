@@ -76,11 +76,43 @@ test.describe("AI Chat (authenticated)", () => {
     test.skip(!appeared, "RELIANCE not seeded in the local test DB");
     await option.click();
 
+    // The live-answer region is the chat's aria-live log inside the panel.
+    const conversation = page.getByRole("log").or(page.locator('[aria-live="polite"]')).first();
+
     const composer = page.getByRole("textbox", { name: /Chat message/i });
-    await composer.fill("In one sentence, what sector is this company in?");
+    const question = "In one short sentence, what sector is this company in?";
+    await composer.fill(question);
     await composer.press("Enter");
-    // A non-empty assistant message should stream in (allow up to 30s).
-    await expect(page.getByText(/Educational analysis/i).first()).toBeVisible({ timeout: 30_000 });
+
+    // The user's message echoes into the conversation.
+    await expect(conversation.getByText(question, { exact: false })).toBeVisible({ timeout: 10_000 });
+
+    // A SUBSTANTIVE assistant answer must render — not merely the disclaimer
+    // (an error/refusal also ends with a disclaimer, so the disclaimer alone is
+    // NOT sufficient proof of a real answer). We require the panel to NOT be in
+    // an error state and to contain a non-trivial amount of assistant text.
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect
+      .poll(
+        async () => {
+          const text = (await conversation.innerText().catch(() => "")) ?? "";
+          // Strip the echoed question + the standing disclaimer so we measure
+          // only the model's actual answer content.
+          const answerOnly = text
+            .replace(question, "")
+            .replace(/Educational analysis[^\n]*/gi, "")
+            .trim();
+          return answerOnly.length;
+        },
+        {
+          timeout: 40_000,
+          message: "expected a substantive streamed assistant answer, not just the disclaimer",
+        },
+      )
+      .toBeGreaterThan(40);
+
+    // And the standard educational disclaimer is still present on the answer.
+    await expect(page.getByText(/Educational analysis/i).first()).toBeVisible();
   });
 });
 

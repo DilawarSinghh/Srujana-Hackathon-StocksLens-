@@ -24,12 +24,29 @@ What it does **not** do: no forged JWTs, no service-role key in the browser or
 any committed fixture, no RLS bypass, no production middleware bypass. The
 session is a genuine `signInWithPassword` sign-in through the app's own client.
 
+## Public vs. secret environment variables
+
+- **Public** (safe in the browser bundle; `NEXT_PUBLIC_` prefix): `E2E_SUPABASE_URL`,
+  `E2E_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- **Secret** (server/scripts only — NEVER shipped to the browser): `E2E_SUPABASE_SERVICE_ROLE`
+  (used only by the Node setup/cleanup to create/delete the local test user) and
+  `SUPABASE_SERVICE_ROLE_KEY`. `E2E_TEST_PASSWORD` is a throwaway local secret.
+
+Put all values in `.env.local` (gitignored). Next.js loads `.env.local` ahead of
+`.env`, so the Playwright-built app server picks them up automatically.
+
 ## One-time setup
 
 Requires **Docker or Podman** (for `supabase start`).
 
-1. Start a local Supabase stack from the repo root:
+0. Install dependencies (once):
    ```bash
+   pnpm install
+   ```
+1. Confirm a container runtime is available, then start a local Supabase stack
+   from the repo root:
+   ```bash
+   docker info                   # or: podman info  — must succeed
    npx supabase start            # prints local URL + anon/service_role keys
    npx supabase db reset         # applies supabase/migrations to the local DB
    ```
