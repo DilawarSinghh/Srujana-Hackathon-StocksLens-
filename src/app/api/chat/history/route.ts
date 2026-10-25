@@ -4,7 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const querySchema = z.object({ symbol: z.string().trim().min(1).max(40) });
+const querySchema = z.object({
+  symbol: z.string().trim().min(1).max(40),
+  // Which transcript to load/clear. Defaults to the filings chat.
+  mode: z.enum(["filings", "web"]).default("filings"),
+});
 
 /**
  * GET /api/chat/history?symbol= — this user's messages for a stock.
@@ -13,7 +17,10 @@ const querySchema = z.object({ symbol: z.string().trim().min(1).max(40) });
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const parsed = querySchema.safeParse({ symbol: searchParams.get("symbol") ?? "" });
+  const parsed = querySchema.safeParse({
+    symbol: searchParams.get("symbol") ?? "",
+    mode: searchParams.get("mode") ?? undefined,
+  });
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
@@ -36,6 +43,7 @@ export async function GET(request: Request) {
     .select("id, role, content, sources, audit, created_at")
     .eq("user_id", user.id)
     .eq("stock_id", stock.id)
+    .eq("mode", parsed.data.mode)
     .order("created_at", { ascending: true });
 
   if (error) return NextResponse.json({ error: "Failed to load." }, { status: 500 });
@@ -44,7 +52,10 @@ export async function GET(request: Request) {
 
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
-  const parsed = querySchema.safeParse({ symbol: searchParams.get("symbol") ?? "" });
+  const parsed = querySchema.safeParse({
+    symbol: searchParams.get("symbol") ?? "",
+    mode: searchParams.get("mode") ?? undefined,
+  });
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
@@ -66,7 +77,8 @@ export async function DELETE(request: Request) {
     .from("chat_messages")
     .delete()
     .eq("user_id", user.id)
-    .eq("stock_id", stock.id);
+    .eq("stock_id", stock.id)
+    .eq("mode", parsed.data.mode);
 
   if (error) return NextResponse.json({ error: "Failed to clear." }, { status: 500 });
   return NextResponse.json({ ok: true });
