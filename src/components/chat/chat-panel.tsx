@@ -245,16 +245,22 @@ function ChatInner({
             role="alert"
             className="my-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
           >
-            <span>{errorMessage(error)}</span>
-            {error !== "auth" ? (
-              <Button variant="outline" size="sm" onClick={retry} className="h-7">
-                Retry
-              </Button>
-            ) : (
+            <span>{error.message}</span>
+            {error.code === "auth" ? (
               <Button asChild variant="outline" size="sm" className="h-7">
                 <Link href="/login">Sign in</Link>
               </Button>
-            )}
+            ) : error.retryable ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={retry}
+                disabled={streaming}
+                className="h-7"
+              >
+                Retry
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -358,8 +364,3 @@ function ChatInner({
   );
 }
 
-function errorMessage(kind: "auth" | "rate" | "generic"): string {
-  if (kind === "auth") return "Please sign in to chat.";
-  if (kind === "rate") return "You've hit the hourly message limit. Try again later.";
-  return "Something went wrong. Please try again.";
-}

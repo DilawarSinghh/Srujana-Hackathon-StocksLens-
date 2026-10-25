@@ -372,7 +372,8 @@ describe("POST /api/chat — guards & failures", () => {
     shouldThrow = true;
     const res = await POST(req({ symbol: "MARUTI", message: "tell me about it" }));
     expect(res.status).toBe(500);
-    const json = (await res.json()) as { error: string };
-    expect(json.error).toMatch(/something went wrong/i);
+    const json = (await res.json()) as { error: string; code: string };
+    expect(json.error).toMatch(/could not complete the request/i);
+    expect(json.code).toBe("unknown");
   });
 });

@@ -152,6 +152,8 @@ export interface AgentResult<T> {
   error: string | null;
   /** Provider/model fallback was exhausted (vs a parse failure). */
   providerFailed?: boolean;
+  /** Typed LLM error code (see classifyLlmError) when a provider failure occurred. */
+  code?: string;
 }
 
 /** The full debate payload returned to the client (in-session; not persisted in the MVP). */

@@ -26,6 +26,7 @@ import {
   generateWithFallback,
   AllModelsFailedError,
 } from "./model-chain";
+import { LlmNotConfiguredError } from "@/lib/llm/errors";
 
 /** Build a fake resolved chain of N labelled models. */
 function fakeChain(labels: string[]): ResolvedModel[] {
@@ -124,10 +125,10 @@ describe("streamWithFallback", () => {
     expect(generateText).toHaveBeenCalledTimes(3); // all three entries tried
   });
 
-  it("throws AllModelsFailedError when no provider is configured", async () => {
+  it("throws LlmNotConfiguredError when no Groq model is configured", async () => {
     resolveChatChain.mockReturnValue([]);
     await expect(streamWithFallback({ messages: [] })).rejects.toBeInstanceOf(
-      AllModelsFailedError,
+      LlmNotConfiguredError,
     );
     expect(generateText).not.toHaveBeenCalled();
   });

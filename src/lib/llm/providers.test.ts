@@ -25,6 +25,7 @@ import {
   isProviderConfigured,
   resolveChatChain,
   resolveAuditModel,
+  DEFAULT_GROQ_MODEL,
 } from "./providers";
 
 beforeEach(() => {
@@ -70,20 +71,23 @@ describe("resolveChatChain", () => {
   });
 
   it("uses GROQ_MODEL as a single-model chain when LLM_CHAT_CHAIN is unset", () => {
-    env.GROQ_MODEL = "openai/gpt-oss-20b";
+    env.GROQ_MODEL = "openai/gpt-oss-120b";
     env.GROQ_API_KEY = "k";
     expect(resolveChatChain().map((m) => m.label)).toEqual([
-      "groq:openai/gpt-oss-20b",
+      "groq:openai/gpt-oss-120b",
     ]);
   });
 
-  it("returns [] when Groq is not configured", () => {
-    env.LLM_CHAT_CHAIN = "groq:m1";
-    expect(resolveChatChain()).toEqual([]);
+  it("falls back to the DEFAULT_GROQ_MODEL when neither LLM_CHAT_CHAIN nor GROQ_MODEL is set", () => {
+    env.GROQ_API_KEY = "k";
+    const chain = resolveChatChain();
+    expect(chain).toHaveLength(1);
+    expect(chain[0].label).toBe(`groq:${DEFAULT_GROQ_MODEL}`);
   });
 
-  it("returns [] when neither LLM_CHAT_CHAIN nor GROQ_MODEL is set", () => {
-    env.GROQ_API_KEY = "k";
+  it("returns [] when Groq is not configured (no API key), even with the default model", () => {
+    expect(resolveChatChain()).toEqual([]);
+    env.LLM_CHAT_CHAIN = "groq:m1";
     expect(resolveChatChain()).toEqual([]);
   });
 });

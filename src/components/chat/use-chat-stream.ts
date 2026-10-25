@@ -11,7 +11,18 @@ export interface ChatMessage {
   audit?: AuditResult | null;
 }
 
-type ErrorKind = "auth" | "rate" | "generic" | null;
+/**
+ * UI error kinds. `rate` = the user's own StockLens hourly quota (not
+ * retryable now). The rest come from the server's typed LLM error `code`:
+ * provider rate-limit, not-configured, etc. `retryable` drives whether we show
+ * a Retry button.
+ */
+export interface ChatError {
+  message: string;
+  retryable: boolean;
+  /** The server `code` (e.g. "rate_limited", "not_configured") or a UI kind. */
+  code: string;
+}
 
 interface SendResult {
   ok: boolean;
@@ -27,7 +38,7 @@ export type ChatMode = "analysis" | "filings";
 export function useChatStream(symbol: string, mode: ChatMode = "analysis") {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = React.useState(false);
-  const [error, setError] = React.useState<ErrorKind>(null);
+  const [error, setError] = React.useState<ChatError | null>(null);
   const [loadingHistory, setLoadingHistory] = React.useState(true);
   const lastUserMessage = React.useRef<string>("");
 
@@ -94,9 +105,7 @@ export function useChatStream(symbol: string, mode: ChatMode = "analysis") {
         });
 
         if (!res.ok) {
-          const kind: ErrorKind =
-            res.status === 401 ? "auth" : res.status === 429 ? "rate" : "generic";
-          setError(kind);
+          setError(await parseError(res));
           // Remove the optimistic pair on error.
           setMessages((prev) => prev.filter((m) => m.id !== assistantId && m.id !== userMsg.id));
           return { ok: false };
@@ -115,7 +124,11 @@ export function useChatStream(symbol: string, mode: ChatMode = "analysis") {
         await loadHistory();
         return { ok: true };
       } catch {
-        setError("generic");
+        setError({
+          code: "network",
+          retryable: true,
+          message: "Couldn't reach the server. Check your connection and try again.",
+        });
         setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         return { ok: false };
       } finally {
@@ -137,6 +150,48 @@ export function useChatStream(symbol: string, mode: ChatMode = "analysis") {
     send,
     clear,
     retry,
+  };
+}
+
+/**
+ * Turn a non-OK response into a typed ChatError. Prefers the server's typed
+ * `{ error, code, retryable }` body; falls back to status-based defaults.
+ *
+ * Distinguishes the app's OWN hourly quota (HTTP 429 with no `code`) from a
+ * Groq provider rate-limit (HTTP 429 with code "rate_limited"): the former is
+ * not retryable right now, the latter is.
+ */
+async function parseError(res: Response): Promise<ChatError> {
+  let body: { error?: string; code?: string; retryable?: boolean } = {};
+  try {
+    body = (await res.json()) as typeof body;
+  } catch {
+    // non-JSON error body; fall back to status defaults
+  }
+
+  if (res.status === 401) {
+    return {
+      code: "auth",
+      retryable: false,
+      message: body.error ?? "Please sign in to chat.",
+    };
+  }
+  // App-level quota: 429 with no typed provider code.
+  if (res.status === 429 && !body.code) {
+    return {
+      code: "app_quota",
+      retryable: false,
+      message:
+        body.error ??
+        "Your StockLens hourly message quota has been reached. Please try again a little later.",
+    };
+  }
+  return {
+    code: body.code ?? "generic",
+    retryable: body.retryable ?? res.status >= 500,
+    message:
+      body.error ??
+      "The AI service could not complete the request. Your message has not been answered.",
   };
 }
 

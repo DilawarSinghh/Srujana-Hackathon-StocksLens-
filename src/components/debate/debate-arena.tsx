@@ -23,12 +23,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-type ErrorKind = "auth" | "rate" | "data" | "generic" | null;
+interface DebateError {
+  message: string;
+  retryable: boolean;
+  /** "auth" | "data" | server LLM code | "app_quota" | "generic" */
+  code: string;
+}
 
 /** Top-level client orchestration for the debate arena. */
 export function DebateArena() {
   const [running, setRunning] = React.useState(false);
-  const [error, setError] = React.useState<ErrorKind>(null);
+  const [error, setError] = React.useState<DebateError | null>(null);
   const [data, setData] = React.useState<DebateResponse | null>(null);
   const [activeSource, setActiveSource] = React.useState<DebateCitation | null>(null);
   const [meta, setMeta] = React.useState<{ thesis: string; focus: DebateFocus } | null>(null);
@@ -52,21 +57,17 @@ export function DebateArena() {
           }),
         });
         if (!res.ok) {
-          setError(
-            res.status === 401
-              ? "auth"
-              : res.status === 429
-                ? "rate"
-                : res.status === 422
-                  ? "data"
-                  : "generic",
-          );
+          setError(await parseDebateError(res));
           return;
         }
         const json = (await res.json()) as DebateResponse;
         setData(json);
       } catch {
-        setError("generic");
+        setError({
+          code: "network",
+          retryable: true,
+          message: "Couldn't reach the server. Check your connection and try again.",
+        });
       } finally {
         setRunning(false);
       }
@@ -87,13 +88,13 @@ export function DebateArena() {
           role="alert"
           className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          <span>{errorMessage(error)}</span>
-          {error === "auth" ? (
+          <span>{error.message}</span>
+          {error.code === "auth" ? (
             <Button asChild variant="outline" size="sm">
               <Link href="/login?next=/debate">Sign in</Link>
             </Button>
-          ) : error !== "data" ? (
-            <Button variant="outline" size="sm" onClick={retry}>
+          ) : error.retryable ? (
+            <Button variant="outline" size="sm" onClick={retry} disabled={running}>
               Retry
             </Button>
           ) : null}
@@ -227,15 +228,47 @@ function RunningSkeleton() {
   );
 }
 
-function errorMessage(kind: Exclude<ErrorKind, null>): string {
-  switch (kind) {
-    case "auth":
-      return "Please sign in to run a debate.";
-    case "rate":
-      return "You've reached the hourly AI limit. Please try again a little later.";
-    case "data":
-      return "There isn't enough stored data for this stock to run a debate yet. Try another stock.";
-    default:
-      return "Something went wrong running the debate. Please try again.";
+/**
+ * Map a non-OK /api/debate response to a typed DebateError. Prefers the
+ * server's `{ error, code, retryable }` body, distinguishing the app's own
+ * hourly quota (429 without a code) from a Groq provider rate-limit, a
+ * missing-data 422, and auth.
+ */
+async function parseDebateError(res: Response): Promise<DebateError> {
+  let body: { error?: string; code?: string; retryable?: boolean } = {};
+  try {
+    body = (await res.json()) as typeof body;
+  } catch {
+    // non-JSON body; fall back to status defaults
   }
+  if (res.status === 401) {
+    return {
+      code: "auth",
+      retryable: false,
+      message: body.error ?? "Please sign in to run a debate.",
+    };
+  }
+  if (res.status === 422) {
+    return {
+      code: "data",
+      retryable: false,
+      message:
+        body.error ??
+        "There isn't enough stored data for this stock to run a debate yet. Try another stock.",
+    };
+  }
+  if (res.status === 429 && !body.code) {
+    return {
+      code: "app_quota",
+      retryable: false,
+      message:
+        body.error ??
+        "You've reached your StockLens hourly AI limit. Please try again a little later.",
+    };
+  }
+  return {
+    code: body.code ?? "generic",
+    retryable: body.retryable ?? res.status >= 500,
+    message: body.error ?? "Something went wrong running the debate. Please try again.",
+  };
 }

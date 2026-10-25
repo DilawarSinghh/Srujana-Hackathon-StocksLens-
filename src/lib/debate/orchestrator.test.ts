@@ -176,11 +176,23 @@ describe("runDebate — partial failures (honest, no fabrication)", () => {
   it("surfaces a provider failure as a failed agent, not a fake result", async () => {
     const { AllModelsFailedError } = await import("@/lib/rag/model-chain");
     const generate: GenerateFn = vi.fn(async () => {
-      throw new AllModelsFailedError(new Error("boom"), 429);
+      throw new AllModelsFailedError(new Error("boom"), 429, 3000);
     });
     const out = await runDebate(INPUT, generate);
     expect(out.bull.status).toBe("failed");
     expect(out.bull.providerFailed).toBe(true);
+    expect(out.bull.code).toBe("rate_limited");
+  });
+
+  it("tags a not_configured provider failure so the route can skip quota metering", async () => {
+    const { LlmNotConfiguredError } = await import("@/lib/llm/errors");
+    const generate: GenerateFn = vi.fn(async () => {
+      throw new LlmNotConfiguredError();
+    });
+    const out = await runDebate(INPUT, generate);
+    expect(out.bull.status).toBe("failed");
+    expect(out.bull.code).toBe("not_configured");
+    expect(out.judge.output).toBeNull(); // never a fabricated verdict
   });
 });
 

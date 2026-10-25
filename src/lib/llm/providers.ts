@@ -43,6 +43,14 @@ export interface ResolvedModel {
 const KNOWN_PROVIDERS: ReadonlySet<string> = new Set(["groq"]);
 
 /**
+ * Safe default Groq chat model, used when neither LLM_CHAT_CHAIN nor GROQ_MODEL
+ * is set (e.g. the env var was forgotten in a deployment). This is a currently
+ * available Groq-hosted model, verified via the Groq /models endpoint; it keeps
+ * chat working out of the box while remaining fully overridable through env.
+ */
+export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
+
+/**
  * Parse a comma-separated chain string into typed entries. Entries whose
  * provider prefix is not `groq` are dropped (Groq-only policy), as are
  * malformed entries. Order and duplicates within the parsed list are preserved
@@ -120,11 +128,15 @@ export function resolveChatChain(): ResolvedModel[] {
   return out;
 }
 
-/** Default single-model Groq chain built from GROQ_MODEL. */
+/**
+ * Default single-model Groq chain. Uses GROQ_MODEL when set, otherwise falls
+ * back to DEFAULT_GROQ_MODEL so chat keeps working even if the env var is
+ * missing in a deployment. Still requires GROQ_API_KEY (resolveModel enforces
+ * that) — the default model name alone is never enough.
+ */
 function defaultGroqEntries(): ChainEntry[] {
   const env = getServerEnv();
-  const model = env.GROQ_MODEL?.trim();
-  if (!model) return [];
+  const model = env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL;
   return [{ provider: "groq", model }];
 }
 

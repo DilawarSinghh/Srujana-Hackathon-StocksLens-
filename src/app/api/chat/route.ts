@@ -15,6 +15,7 @@ import {
   streamWithFallback,
   AllModelsFailedError,
 } from "@/lib/rag/model-chain";
+import { classifyLlmError, classifyModelsFailed } from "@/lib/llm/errors";
 import { auditAnswer } from "@/lib/rag/audit";
 import {
   isAdviceSeeking,
@@ -277,14 +278,15 @@ async function runModel(p: RunModelParams): Promise<Response> {
     });
     return result.toDataStreamResponse();
   } catch (e) {
-    const err = e as Error & { statusCode?: number };
-    const status =
-      e instanceof AllModelsFailedError || err?.statusCode === 429 ? 429 : 500;
-    const message =
-      status === 429
-        ? "The AI service is busy right now. Please try again shortly."
-        : "Something went wrong generating an answer. Please try again.";
-    return NextResponse.json({ error: message }, { status });
+    const c =
+      e instanceof AllModelsFailedError
+        ? classifyModelsFailed(e.lastError, e.lastStatusCode, e.retryAfterMs)
+        : classifyLlmError(e);
+    console.error(`[chat] llm error (${c.kind}):`, (e as Error).message);
+    return NextResponse.json(
+      { error: c.message, code: c.code, retryable: c.retryable },
+      { status: c.status },
+    );
   }
 }
 

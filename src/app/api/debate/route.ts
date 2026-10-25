@@ -93,15 +93,6 @@ export async function POST(request: Request) {
     console.error("debate retrieval:", (e as Error).message);
   }
 
-  // Meter this run against the shared rate limit by recording the request.
-  await admin.from("chat_messages").insert({
-    user_id: user.id,
-    stock_id: stock.id,
-    role: "user",
-    content: `[debate:${body.focus}] ${body.thesis || "(no thesis)"}`.slice(0, 1000),
-    mode: "analysis",
-  } satisfies TablesInsert<"chat_messages">);
-
   const runId = crypto.randomUUID();
 
   try {
@@ -111,6 +102,20 @@ export async function POST(request: Request) {
       focus: body.focus,
       thesis: body.thesis,
     });
+
+    // Meter this run against the shared hourly budget ONLY when the provider
+    // actually ran (the Bull stage produced a result or failed on its own
+    // merits). A configuration failure — Groq not set up — is not the user's
+    // fault, so we do NOT consume their quota for it.
+    if (bull.code !== "not_configured") {
+      await admin.from("chat_messages").insert({
+        user_id: user.id,
+        stock_id: stock.id,
+        role: "user",
+        content: `[debate:${body.focus}] ${body.thesis || "(no thesis)"}`.slice(0, 1000),
+        mode: "analysis",
+      } satisfies TablesInsert<"chat_messages">);
+    }
 
     const result: DebateResult = { runId, bull, devil, judge };
     return NextResponse.json({

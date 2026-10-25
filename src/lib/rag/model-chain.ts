@@ -4,6 +4,7 @@ import {
   resolveChatChain,
   type ResolvedModel,
 } from "@/lib/llm/providers";
+import { LlmNotConfiguredError } from "@/lib/llm/errors";
 
 /**
  * Provider-agnostic chat model fallback chain.
@@ -72,6 +73,8 @@ export class AllModelsFailedError extends Error {
   constructor(
     public readonly lastError: unknown,
     public readonly lastStatusCode?: number,
+    /** Retry-After (ms) from the last provider error, when present. */
+    public readonly retryAfterMs?: number | null,
   ) {
     super("All chat models failed to respond.");
     this.name = "AllModelsFailedError";
@@ -106,6 +109,8 @@ export async function streamWithFallback(
   options: StreamTextOptions,
 ): Promise<ReturnType<typeof streamText>> {
   const chain = resolveChatChain();
+  // No Groq model configured — a configuration problem, NOT a transient "busy".
+  if (chain.length === 0) throw new LlmNotConfiguredError();
   let lastErr: unknown;
 
   for (const entry of chain) {
@@ -127,6 +132,7 @@ export async function streamWithFallback(
   throw new AllModelsFailedError(
     lastErr,
     (lastErr as { statusCode?: number })?.statusCode,
+    retryAfterMs(lastErr),
   );
 }
 
@@ -145,6 +151,8 @@ export async function generateWithFallback(
   const ordered: ResolvedModel[] = preferred
     ? [preferred, ...chain.filter((m) => m.label !== preferred.label)]
     : chain;
+  // No Groq model configured — a configuration problem, NOT a transient "busy".
+  if (ordered.length === 0) throw new LlmNotConfiguredError();
   let lastErr: unknown;
 
   for (const entry of ordered) {
@@ -165,5 +173,6 @@ export async function generateWithFallback(
   throw new AllModelsFailedError(
     lastErr,
     (lastErr as { statusCode?: number })?.statusCode,
+    retryAfterMs(lastErr),
   );
 }

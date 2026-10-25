@@ -1,5 +1,10 @@
 import "server-only";
 import { generateWithFallback, AllModelsFailedError } from "@/lib/rag/model-chain";
+import {
+  classifyLlmError,
+  classifyModelsFailed,
+  LlmNotConfiguredError,
+} from "@/lib/llm/errors";
 import { renderAnalysisData, renderSources } from "@/lib/rag/prompt";
 import { containsAdvice } from "@/lib/rag/guardrails";
 import type { ChatDataBlock } from "@/lib/rag/context";
@@ -65,11 +70,24 @@ function evidenceContext(input: DebateInput): string {
   )}`;
 }
 
-function failureNote(e: unknown): { error: string; providerFailed: boolean } {
-  if (e instanceof AllModelsFailedError) {
-    return { error: "The AI service is busy right now.", providerFailed: true };
+function failureNote(e: unknown): {
+  error: string;
+  providerFailed: boolean;
+  code?: string;
+} {
+  if (e instanceof LlmNotConfiguredError) {
+    const c = classifyLlmError(e);
+    return { error: c.message, providerFailed: true, code: c.code };
   }
-  return { error: "The agent could not produce a usable response.", providerFailed: false };
+  if (e instanceof AllModelsFailedError) {
+    const c = classifyModelsFailed(e.lastError, e.lastStatusCode, e.retryAfterMs);
+    return { error: c.message, providerFailed: true, code: c.code };
+  }
+  // A parse/schema/guard failure, not a provider failure.
+  return {
+    error: "The agent could not produce a usable response.",
+    providerFailed: false,
+  };
 }
 
 /**
@@ -105,8 +123,8 @@ export async function runBull(
     }
     return { agent: "bull", status: "ok", output: parsed.value, error: null };
   } catch (e) {
-    const { error, providerFailed } = failureNote(e);
-    return { agent: "bull", status: "failed", output: null, error, providerFailed };
+    const { error, providerFailed, code } = failureNote(e);
+    return { agent: "bull", status: "failed", output: null, error, providerFailed, code };
   }
 }
 
@@ -140,8 +158,8 @@ export async function runDevil(
     }
     return { agent: "devil", status: "ok", output: parsed.value, error: null };
   } catch (e) {
-    const { error, providerFailed } = failureNote(e);
-    return { agent: "devil", status: "failed", output: null, error, providerFailed };
+    const { error, providerFailed, code } = failureNote(e);
+    return { agent: "devil", status: "failed", output: null, error, providerFailed, code };
   }
 }
 
@@ -179,8 +197,8 @@ export async function runJudge(
     }
     return { agent: "judge", status: "ok", output: parsed.value, error: null };
   } catch (e) {
-    const { error, providerFailed } = failureNote(e);
-    return { agent: "judge", status: "failed", output: null, error, providerFailed };
+    const { error, providerFailed, code } = failureNote(e);
+    return { agent: "judge", status: "failed", output: null, error, providerFailed, code };
   }
 }
 
